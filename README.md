@@ -1,86 +1,161 @@
-# NovaRec 1.0.0 — 开源仓库交付
+# NovaRec · 免费开源的 Windows 录屏软件
 
-本目录是 NovaRec（Windows 桌面录屏软件）的仓库化交付物，包含**源码包**和**可直接运行的便携版**。
+> 全屏录制、截选区域、选择窗口，可同时录制系统声音与麦克风。无广告、无捆绑、无需注册。
 
-## 交付清单
+**Windows 10 / 11 · x64** ｜ **Electron 45 + Chromium 桌面采集 + ffmpeg** ｜ **MIT License** ｜ **v1.0.0**
 
-| 文件 | 大小 | 说明 |
-| --- | --- | --- |
-| `novarec-1.0.0-source.zip` | 约 2.4 MB | 完整开源仓库源码（`git archive` 导出，解压即得干净仓库，不含 node_modules / 构建产物 / 个人数据） |
-| `NovaRec-1.0.0-win32-x64-portable.zip` | 约 181 MB | 已构建好的 Windows x64 便携版，解压后双击 `NovaRec.exe` 即可使用，无需安装 |
-| `NovaRec-Setup-1.0.0-x64.exe` | 约 128 MB | **Windows 安装包**（NSIS，中文/英文双语向导）。双击安装，可选安装目录、创建桌面/开始菜单快捷方式，带卸载程序 |
-| `NovaRec-win32-x64\` | 约 421 MB | 便携版**已解压好的文件夹**，直接双击里面的 `NovaRec.exe` 就能运行（等同于解压上面那个 zip） |
+![录制页](docs/screenshots/01-record.png)
 
-仓库本体（含 git 历史）在 `D:\Workplace\novarec`，已初始化 git（分支 `main`，单条提交 `feat: NovaRec 1.0.0 初始开源发布`），可直接作为远端仓库内容推送。
+## 目录
 
-## 源码包结构
+- [功能](#功能)
+- [截图](#截图)
+- [下载与安装](#下载与安装)
+- [从源码运行](#从源码运行)
+- [打包与签名](#打包与签名)
+- [项目结构](#项目结构)
+- [工作原理](#工作原理)
+- [已知限制](#已知限制)
+- [文档](#文档)
+- [许可证与第三方组件](#许可证与第三方组件)
 
-```
-novarec-1.0.0/
-├── src/
-│   ├── main/          # 主进程：窗口/托盘/快捷键/IPC/录制编排/素材库/ffmpeg 封装
-│   ├── preload/       # 渲染进程上下文桥
-│   ├── renderer/      # 主界面（录制 / 素材库 / 设置）
-│   ├── capture/       # 隐藏采集窗口（getUserMedia + MediaRecorder）
-│   └── overlay/       # 区域框选覆盖层
-├── assets/            # 应用图标（PNG / ICO / 托盘图标）
-├── docs/              # 使用说明.md、architecture.md、build.md、publish.md、verification.md、ipc-contract.md、截图
-├── scripts/           # 打包、安装包、签名、图标生成、自测、截图脚本
-├── .github/           # GitHub Actions 构建工作流 + Issue 模板
-├── README.md          # 项目介绍（含截图、运行方式、工作原理、已知限制）
-├── CONTRIBUTING.md / CHANGELOG.md / SECURITY.md
-└── LICENSE            # MIT
-```
+## 功能
 
-## 使用方式
+- **三种录制模式**：整屏 / 矩形框选区域 / 指定应用窗口
+- **声音**：系统声音（默认播放设备 loopback）与麦克风可分别开关，支持混音；也可纯静音录制
+- **输出格式**：MP4（H.264 + AAC，兼容性最好）或 WebM（VP9 + Opus），支持帧率 / 画质档位
+- **录制控制**：倒计时（关闭 / 3 秒 / 5 秒）、暂停与继续（暂停不计入时长）、F9 停止、F10 暂停/继续
+- **不打扰**：开始录制后主窗口自动隐藏，托盘图标 + 托盘菜单控制；单实例运行
+- **素材库**：缩略图预览、播放、定位文件、删除（进回收站），录制完成自动入库
+- **性能模式**：低配机器自动降到 720p · 30fps 并精简界面动画，录制期间阻止息屏
+- **中文界面**：浅色 + 单一绿色强调色（#17A24B），无边框自绘标题栏
 
-**直接使用便携版**：解压 `NovaRec-1.0.0-win32-x64-portable.zip`，双击 `NovaRec.exe`（本目录里已有解压好的 `NovaRec-win32-x64\` 文件夹，可直接运行）。
-数据（设置、素材库、临时文件）保存在 exe 同级的 `NovaRecData` 目录，整个文件夹可随意移动/拷贝；录好的视频默认保存到 `视频\NovaRec`。
+## 截图
 
-**使用安装包**：双击 `NovaRec-Setup-1.0.0-x64.exe`，按向导选择安装目录（默认当前用户目录，无需管理员），可选是否创建桌面/开始菜单快捷方式；卸载用「设置 → 应用 → NovaRec 录屏」或安装目录里的 `Uninstall NovaRec.exe`。
-安装包为自签名证书签名，Windows SmartScreen 可能提示「未知发布者」，点「仍要运行」即可；安装包内置的程序为同一套便携布局，安装目录可写时数据保存在安装目录下的 `NovaRecData`，不可写时自动退回 `%APPDATA%\NovaRec`。
+| 录制页 | 素材库 |
+| --- | --- |
+| ![录制页](docs/screenshots/01-record.png) | ![素材库](docs/screenshots/02-library.png) |
 
-**从源码运行**（需要 Node.js ≥ 20）：
+| 设置 | 选择窗口 |
+| --- | --- |
+| ![设置](docs/screenshots/03-settings.png) | ![选择窗口](docs/screenshots/04-window-picker.png) |
+
+| 倒计时 | 录制中 |
+| --- | --- |
+| ![倒计时](docs/screenshots/05-countdown.png) | ![录制中](docs/screenshots/06-recording.png) |
+
+## 下载与安装
+
+发布版提供两种形式（见仓库 Releases 页面）：
+
+- **安装包**：`NovaRec-Setup-1.0.0-x64.exe`，NSIS 安装向导，可自选安装目录，自带卸载程序
+- **便携版**：`NovaRec-1.0.0-win32-x64.zip`，解压即用，不写注册表
+
+系统要求：Windows 10 1809 及以上 / Windows 11，x64；录制系统声音需要有可用的播放设备。
+
+> 便携版与安装包默认**未做商业代码签名**（自签名证书不被系统信任），首次运行可能出现 SmartScreen「未知发布者」提示，选择「更多信息 → 仍要运行」即可。自行构建并签名的方法见 [docs/build.md](docs/build.md)。
+
+## 从源码运行
+
+需要 **Node.js 20+**（本项目在 Node 24 上开发验证）与 Windows 10/11。
 
 ```bash
+git clone https://github.com/<your-org>/novarec.git
+cd novarec
 npm ci
-node node_modules/electron/install.js   # npm 12 默认拦截 postinstall，需手动执行一次
-npm start                               # 若环境因 Chromium 沙箱退出，改用 npm run start:nosandbox
 ```
 
-**重新打包**：
+`npm ci` 之后如果 `node_modules/electron/dist` 为空（npm 12 会阻止第三方 postinstall 脚本），手动补一次 Electron 二进制：
 
 ```bash
-npm run build             # 便携版目录 + zip（artifacts/）
-npm run build:installer   # NSIS 安装包（artifacts/installer/）
+node node_modules/electron/install.js
+# 国内网络可先设镜像：
+# set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 ```
 
-详细步骤见 `docs/build.md`；发布到 GitHub 的步骤见 `docs/publish.md`（其中 `<your-org>` 需替换成实际账号/组织名）。
-
-## 本轮验证记录
-
-- **构建**：`node scripts/package.mjs --out=artifacts/dist-v2` 成功，产物 85 个文件 / 约 421 MB，包含 `NovaRec.exe`、`app.asar`、内置 ffmpeg。
-- **打包版启动**：便携目录 `NovaRecData` 生效，日志 `[novarec] ready, userData=...\NovaRecData output=C:\Users\<用户>\Videos\NovaRec`，窗口正常创建。
-- **录制自测**（`npm run selftest`，三模式端到端，含系统声音）：
-  - 全屏：`1920x1080`，3.3s，3.0 MB，音轨 ✓，mp4 remux ✓
-  - 区域：`1000x750`，3.8s，1.5 MB，音轨 ✓，mp4 remux ✓
-  - 窗口：`1004x754`，3.8s，1.6 MB，音轨 ✓，mp4 remux ✓
-  - 结果 `ok: true`，暂停/恢复、倒计时、素材库入库均通过。
-- **数据目录兼容性修复**：打包版原先写 `%APPDATA%\NovaRec`，在受安全软件限制的机器上会被拒绝导致启动失败；已改为**便携优先**（exe 同级 `NovaRecData` → 不可写时退回标准 userData → 再退回 `%APPDATA%\NovaRec`），并在 README / docs/build.md / docs/architecture.md 同步说明。
-
-## 发布到 GitHub
+启动：
 
 ```bash
-cd D:\Workplace\novarec
-# 1) 把 README.md / docs/publish.md 里的 <your-org> 替换为真实账号
-git remote add origin https://github.com/<your-org>/novarec.git
-git push -u origin main
-git tag v1.0.0 && git push origin v1.0.0
-# 2) 在 GitHub Releases 里上传 NovaRec-1.0.0-win32-x64-portable.zip
+npm start
+# 若所在环境因 Chromium 沙箱导致进程直接退出（rc=3），改用：
+npm run start:nosandbox
+# 或 set NOVAREC_NO_SANDBOX=1
 ```
 
-## 注意
+数据目录优先级：`NOVAREC_DATA_DIR` 环境变量 → 开发态 `<repo>/.data`（已在 .gitignore 中）→ 打包态 exe 同级 `NovaRecData`（便携，解压即用）→ 不可写时退回 `%APPDATA%\NovaRec`。
 
-- 内置 ffmpeg 来自 `@ffmpeg-installer/ffmpeg`（GPL 许可），分发给第三方时请随附其许可证并按 GPL 义务处理；仓库 README 的「许可证与第三方组件」一节已注明。
-- 便携版未做商业代码签名（仓库提供自签名脚本 `npm run cert` 与 `scripts/sign-release.ps1` 供内部测试）；Windows SmartScreen 可能提示「未知发布者」，属正常现象。
-- 本机验证环境为 Windows 10 19045；Windows 11 未逐项复测，但代码路径一致。
+## 打包与签名
+
+```bash
+npm run build            # @electron/packager 生成 artifacts/dist/NovaRec-win32-x64 并打 zip
+npm run build:installer  # 基于上面的产物生成 NSIS 安装包 artifacts/installer/NovaRec-Setup-<ver>-x64.exe
+npm run cert             # 创建自签名代码签名证书（仅开发/内部测试）
+npm run verify           # 校验打包产物是否完整可启动
+```
+
+签名、镜像加速、CI 与常见打包问题见 **[docs/build.md](docs/build.md)**。
+
+## 项目结构
+
+```text
+.
+├─ src/
+│  ├─ main/            # 主进程：窗口、托盘、快捷键、IPC、录制编排
+│  │  ├─ main.js       #   应用入口、窗口与托盘、IPC 注册
+│  │  ├─ sources.js    #   desktopCapturer 源枚举 / 图标 / 窗口 bounds
+│  │  ├─ recorder.js   #   录制状态机：倒计时 → 采集 → 收尾入库
+│  │  ├─ ffmpeg.js     #   ffmpeg 定位、探测、转封装
+│  │  ├─ store.js      #   settings.json / library.json 持久化
+│  │  ├─ winbounds.js  #   窗口坐标、DPI、临时目录
+│  │  └─ perf.js       #   性能模式判定
+│  ├─ preload/         # contextBridge 暴露的 window.api
+│  ├─ renderer/        # 主界面（index.html / styles.css / app.js）
+│  ├─ capture/         # 隐藏的采集页面：desktopCapturer + MediaRecorder
+│  └─ overlay/         # 区域框选覆盖层
+├─ assets/             # 应用图标、托盘图标
+├─ docs/               # 使用说明、架构、构建文档、截图
+├─ scripts/            # 打包 / 签名 / 自测 / 截图脚本
+└─ .github/workflows/  # Windows 构建 CI
+```
+
+主进程与渲染进程之间的 IPC 契约见 [docs/ipc-contract.md](docs/ipc-contract.md)，整体数据流见 [docs/architecture.md](docs/architecture.md)。
+
+## 工作原理
+
+1. **取画面**：主进程用 `desktopCapturer` 枚举屏幕 / 窗口源，把 `chromeMediaSourceId` 交给隐藏的采集窗口。
+2. **采集**：采集窗口调用 `getUserMedia`，video 用 `chromeMediaSource: 'desktop'`，audio 同样走 desktop 通道拿到系统声音（loopback）。
+3. **区域录制**：仍采集整屏，再用 canvas 按物理像素裁剪后 `canvas.captureStream()`，因此框选区域不受 DPI 缩放影响。
+4. **窗口录制**：优先直接用窗口源；部分系统/应用不允许时，回退为整屏采集后按窗口 bounds 裁剪。
+5. **编码与落盘**：`MediaRecorder` 每秒产出数据块，经 IPC 交给主进程顺序写入临时文件；停止后用 ffmpeg 做无损转封装（不重新编码），再写入素材库。
+
+## 已知限制
+
+- 仅支持 Windows；整屏录制当前针对主显示器（多屏录制未实现）
+- 无摄像头画中画、无剪辑 / 拼接 / 字幕功能
+- 窗口录制在部分 UWP / 受保护内容窗口上可能失败，此时自动回退为整屏裁剪
+- 系统声音依赖播放设备 loopback：没有活动输出设备时只能录到静音
+- 打包产物内附带的 ffmpeg 为第三方二进制，其许可证约束见下一节
+
+## 文档
+
+- [docs/使用说明.md](docs/使用说明.md)：面向用户的完整手册（三种模式、设置项、常见问题）
+- [docs/architecture.md](docs/architecture.md)：进程模型、录制数据流、模块职责
+- [docs/build.md](docs/build.md)：构建、打包、安装包、代码签名与 CI
+- [docs/verification.md](docs/verification.md)：1.0.0 的端到端验证记录与性能基准
+- [docs/publish.md](docs/publish.md)：把仓库发布到 GitHub、打 Release 的流程
+- [docs/ipc-contract.md](docs/ipc-contract.md)：主进程 ↔ 渲染进程 IPC 契约
+- [CONTRIBUTING.md](CONTRIBUTING.md)：参与开发的方式与规范
+
+## 许可证与第三方组件
+
+本项目源码以 **MIT License** 发布，见 [LICENSE](LICENSE)。
+
+打包产物另含以下第三方组件，分发时请一并遵守其许可证：
+
+| 组件 | 用途 | 许可证 |
+| --- | --- | --- |
+| Electron / Chromium | 运行时 | MIT / BSD 系 |
+| ffmpeg（@ffmpeg-installer 提供的二进制） | 转封装与探测 | 该二进制由第三方构建，通常含 libx264（GPL），分发前请自行确认并遵守 |
+| 图标与界面素材 | 本项目原创 | 随 MIT 发布 |
+
+如果要把构建产物公开分发，建议先确认 ffmpeg 二进制对应的许可证义务（或替换为 LGPL 构建 / 系统 ffmpeg）。
