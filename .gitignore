@@ -1,0 +1,33 @@
+# 依赖
+node_modules/
+
+# 构建与运行产物
+artifacts/
+out/
+dist/
+*.zip
+
+# 开发态数据目录（userData / 录制文件 / 日志）
+.data/
+.data-*/
+.data-shot/
+dev.log
+
+# Electron / 工具缓存
+.electron-cache/
+.etmp/
+.tmp/
+
+# 签名证书与私钥，绝不要提交
+.certs/
+*.pfx
+*.p12
+*.key
+*.pem
+
+# 系统噪音
+Thumbs.db
+Desktop.ini
+.DS_Store
+nul
+*.log

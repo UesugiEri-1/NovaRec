@@ -1,0 +1,90 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量提供可复现的信息。遇到崩溃/无声/黑屏类问题，请附上日志（见下）。
+  - type: input
+    id: version
+    attributes:
+      label: NovaRec 版本
+      description: 界面右下角或 exe 属性里可以看到，例如 1.0.0
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - 安装包（NSIS）
+        - 便携版 zip
+        - 源码运行
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 系统版本
+      description: 例如 Windows 11 23H2 22631.4317 / Windows 10 19045
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+  - type: input
+    id: display
+    attributes:
+      label: 显示器与缩放
+      description: 分辨率、缩放比例、是否多屏，例如 1920x1080 @125%，单屏
+      placeholder: 1920x1080 @125%，单屏
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 录制模式
+      options:
+        - 全屏录制
+        - 区域录制
+        - 窗口录制
+        - 与录制无关（界面 / 素材库 / 其他）
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好，最好能稳定复现
+      placeholder: |
+        1. 打开 NovaRec
+        2. 选择「区域录制」...
+        3. 开始录制 5 秒后停止
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 有报错弹窗 / 控制台信息请原文粘贴
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（可选但很有用）
+      description: |
+        源码运行：仓库根目录下的 .data/dev.log
+        安装版：%APPDATA%\NovaRec\dev.log
+        可以直接把最后 100 行粘贴到这里。
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已尝试最新版本，问题仍然存在
+        - label: 我已搜索过现有 Issue，没有重复
+          required: true

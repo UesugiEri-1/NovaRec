@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows x64 构建
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 补装 Electron 二进制
+        run: node node_modules/electron/install.js
+
+      - name: 打包便携版
+        run: npm run build
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovaRec-win32-x64
+          path: artifacts/NovaRec-*.zip
+          if-no-files-found: error
+          retention-days: 14

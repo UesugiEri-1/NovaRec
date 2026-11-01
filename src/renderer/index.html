@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; font-src 'self'; connect-src 'self'">
+  <title>NovaRec</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <!-- 内联 SVG 图标库：统一 stroke 1.6 / 24 视窗 -->
+  <svg class="svg-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <symbol id="i-logo" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="7.2" opacity=".55"/>
+        <circle cx="12" cy="12" r="3.1" fill="currentColor" stroke="none"/>
+        <path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2" opacity=".5"/>
+      </symbol>
+      <symbol id="i-record" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.4"/>
+        <circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-library" viewBox="0 0 24 24">
+        <rect x="3.2" y="5" width="17.6" height="14" rx="2.4"/>
+        <path d="M7.4 5v14M16.6 5v14M3.2 9.6h4.2M3.2 14.4h4.2M16.6 9.6h4.2M16.6 14.4h4.2"/>
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.1"/>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.51-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/>
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="2.6" y="4.2" width="18.8" height="12.6" rx="2"/>
+        <path d="M8.6 20.2h6.8M12 16.8v3.4"/>
+      </symbol>
+      <symbol id="i-crop" viewBox="0 0 24 24">
+        <path d="M6.5 2.8v14.7h14.7"/>
+        <path d="M2.8 6.5h14.7v14.7"/>
+      </symbol>
+      <symbol id="i-window" viewBox="0 0 24 24">
+        <rect x="3" y="4.4" width="18" height="15.2" rx="2"/>
+        <path d="M3 8.7h18"/>
+        <circle cx="6.3" cy="6.55" r=".65" fill="currentColor" stroke="none"/>
+        <circle cx="8.9" cy="6.55" r=".65" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24">
+        <path d="M4.4 9.4v5.2h3.3l4.2 3.5V5.9L7.7 9.4z"/>
+        <path d="M15.7 8.9a4.4 4.4 0 0 1 0 6.2M18.3 6.3a8 8 0 0 1 0 11.4"/>
+      </symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24">
+        <rect x="9" y="2.8" width="6" height="10.6" rx="3"/>
+        <path d="M5.4 11.2a6.6 6.6 0 0 0 13.2 0M12 17.8V21M8.6 21h6.8"/>
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3.2 7.4a2 2 0 0 1 2-2h3.5l2.1 2.4h8a2 2 0 0 1 2 2v8.4a2 2 0 0 1-2 2H5.2a2 2 0 0 1-2-2z"/>
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20.8 12a8.8 8.8 0 1 1-2.58-6.22"/>
+        <path d="M20.8 3.4v5.6h-5.6"/>
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="10.8" cy="10.8" r="6.6"/>
+        <path d="M15.7 15.7 21 21"/>
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path d="M8.4 5.3v13.4L19 12z" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <rect x="7" y="5" width="3.6" height="14" rx="1.2" fill="currentColor" stroke="none"/>
+        <rect x="13.4" y="5" width="3.6" height="14" rx="1.2" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="6.4" y="6.4" width="11.2" height="11.2" rx="2.2" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-target" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="7.2"/>
+        <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>
+        <path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3"/>
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M4.4 6.6h15.2M9.4 6.6V4.8a1.4 1.4 0 0 1 1.4-1.4h2.4a1.4 1.4 0 0 1 1.4 1.4v1.8"/>
+        <path d="M6.4 6.6l.9 12.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8l.9-12.2"/>
+        <path d="M10.2 10.6v5.4M13.8 10.6v5.4"/>
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="M4.6 12.6 9.2 17.2 19.4 6.8"/>
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6 6 18"/>
+      </symbol>
+      <symbol id="i-minimize" viewBox="0 0 24 24">
+        <path d="M5 12h14"/>
+      </symbol>
+      <symbol id="i-maximize" viewBox="0 0 24 24">
+        <rect x="5.4" y="5.4" width="13.2" height="13.2" rx="1.4"/>
+      </symbol>
+      <symbol id="i-restore" viewBox="0 0 24 24">
+        <rect x="4.2" y="8" width="11.4" height="11.4" rx="1.4"/>
+        <path d="M8.2 8V6a1.6 1.6 0 0 1 1.6-1.6h8.6A1.6 1.6 0 0 1 20 6v8.6a1.6 1.6 0 0 1-1.6 1.6h-2"/>
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M12 7.2V12l3.2 1.9"/>
+      </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M12 11v5.2"/>
+        <circle cx="12" cy="7.9" r=".9" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path d="M12 4 20.6 19.6H3.4z"/>
+        <path d="M12 9.4v4.4"/>
+        <circle cx="12" cy="17" r=".9" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-check-circle" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M8.2 12.3l2.6 2.6 5-5.4"/>
+      </symbol>
+      <symbol id="i-x-circle" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M9 9l6 6M15 9l-6 6"/>
+      </symbol>
+      <symbol id="i-loader" viewBox="0 0 24 24">
+        <path d="M12 3.4a8.6 8.6 0 1 0 8.6 8.6"/>
+      </symbol>
+      <symbol id="i-film" viewBox="0 0 24 24">
+        <rect x="2.8" y="4.4" width="18.4" height="15.2" rx="2.2"/>
+        <path d="M2.8 9.2h18.4M2.8 14.8h18.4M7.2 4.4v15.2M16.8 4.4v15.2"/>
+      </symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24">
+        <rect x="2.6" y="6.2" width="18.8" height="11.6" rx="2"/>
+        <path d="M6.4 9.8h.01M9.6 9.8h.01M12.8 9.8h.01M16 9.8h.01M6.4 13h.01M9.6 13h.01M12.8 13h.01M16 13h.01M7.6 15.6h8.8"/>
+      </symbol>
+      <symbol id="i-drive" viewBox="0 0 24 24">
+        <rect x="2.8" y="5" width="18.4" height="14" rx="2.4"/>
+        <path d="M2.8 12.8h18.4"/>
+        <circle cx="7.2" cy="15.9" r=".9" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-flask" viewBox="0 0 24 24">
+        <path d="M9 3h6M10 3v5.2L4.8 17a2.4 2.4 0 0 0 2.1 3.6h10.2a2.4 2.4 0 0 0 2.1-3.6L14 8.2V3"/>
+        <path d="M7.4 14h9.2"/>
+      </symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24">
+        <path d="M6.4 9.4 12 15l5.6-5.6"/>
+      </symbol>
+      <symbol id="i-monitor-off" viewBox="0 0 24 24">
+        <path d="M3 3l18 18"/>
+        <path d="M8.4 4.2H19a2 2 0 0 1 2 2v8.4M3 7.2v7.4a2 2 0 0 0 2 2h12.6M8.6 20.2h6.8M12 16.8v3.4"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div class="app" id="app">
+    <!-- 标题栏（无边框窗口自绘） -->
+    <header class="titlebar" id="titlebar">
+      <div class="titlebar-left">
+        <div class="brand">
+          <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-logo"/></svg></span>
+          <span class="brand-name">NovaRec</span>
+        </div>
+        <span class="titlebar-sep"></span>
+        <div class="titlebar-crumb">
+          <svg class="icon" aria-hidden="true"><use id="pageIcon" href="#i-record"/></svg>
+          <span id="pageTitle">录制</span>
+        </div>
+      </div>
+      <div class="window-controls">
+        <button type="button" class="win-btn" id="btnMinimize" title="最小化" aria-label="最小化">
+          <svg class="icon" aria-hidden="true"><use href="#i-minimize"/></svg>
+        </button>
+        <button type="button" class="win-btn" id="btnMaximize" title="最大化" aria-label="最大化">
+          <svg class="icon" aria-hidden="true"><use id="btnMaxIcon" href="#i-maximize"/></svg>
+        </button>
+        <button type="button" class="win-btn is-close" id="btnClose" title="关闭" aria-label="关闭">
+          <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 顶部标签栏：主导航 + 快捷键提示 -->
+    <div class="tabbar">
+      <nav class="nav" aria-label="主导航">
+        <button type="button" class="nav-item is-active" data-page="record">
+          <svg class="icon" aria-hidden="true"><use href="#i-record"/></svg>
+          <span>录制</span>
+          <span class="nav-badge" id="navBadge" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="nav-item" data-page="library">
+          <svg class="icon" aria-hidden="true"><use href="#i-library"/></svg>
+          <span>素材库</span>
+        </button>
+        <button type="button" class="nav-item" data-page="settings">
+          <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
+          <span>设置</span>
+        </button>
+      </nav>
+      <div class="tabbar-right">
+        <div class="shortcut-hints">
+          <span class="item"><kbd>F9</kbd>停止</span>
+          <span class="item"><kbd>F10</kbd>暂停</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-body">
+      <!-- 主内容区 -->
+      <main class="main" id="main">
+        <!-- ==================== 页 1：录制 ==================== -->
+        <section class="page is-active" id="page-record" data-page="record">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">录制屏幕</h1>
+              <p class="page-sub">选择录制模式与来源，调整参数后开始录制</p>
+            </div>
+          </div>
+
+          <div class="record-grid">
+            <div class="record-col">
+              <!-- 模式选择 -->
+              <section class="block">
+                <div class="block-head">
+                  <h2 class="block-title">录制模式</h2>
+                  <span class="block-note">三种模式随时切换</span>
+                </div>
+                <div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="录制模式">
+                  <button type="button" class="mode-card is-selected" data-mode="screen" role="radio" aria-checked="true">
+                    <span class="mode-icon"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg></span>
+                    <span class="mode-check"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                    <span class="mode-name">全屏录制</span>
+                    <span class="mode-desc">录制整个显示器画面，适合演示</span>
+                  </button>
+                  <button type="button" class="mode-card" data-mode="region" role="radio" aria-checked="false">
+                    <span class="mode-icon"><svg class="icon" aria-hidden="true"><use href="#i-crop"/></svg></span>
+                    <span class="mode-check"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                    <span class="mode-name">区域录制</span>
+                    <span class="mode-desc">拖拽框选任意区域，只录需要的内容</span>
+                  </button>
+                  <button type="button" class="mode-card" data-mode="window" role="radio" aria-checked="false">
+                    <span class="mode-icon"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg></span>
+                    <span class="mode-check"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                    <span class="mode-name">选择窗口</span>
+                    <span class="mode-desc">只录制单个应用窗口，画面更聚焦</span>
+                  </button>
+                </div>
+              </section>
+
+              <!-- 来源区 -->
+              <section class="block source-block">
+                <div class="block-head source-head">
+                  <div class="block-head-main">
+                    <h2 class="block-title" id="sourceTitle">选择屏幕</h2>
+                    <span class="source-count" id="sourceCount"></span>
+                  </div>
+                  <div class="block-head-actions" id="sourceActions"></div>
+                </div>
+                <div class="source-body" id="sourceBody"></div>
+              </section>
+
+              <!-- 输出区：性能模式与保存位置（放在左列，避免右栏过长） -->
+              <section class="block">
+                <div class="block-head">
+                  <div class="block-head-main">
+                    <h2 class="block-title">输出</h2>
+                    <span class="block-note">性能模式与保存位置</span>
+                  </div>
+                </div>
+                <div class="source-body output-body">
+                  <div class="param-group">
+                    <h3 class="param-group-title">性能</h3>
+                    <div class="param-row param-row-stack">
+                      <div class="param-row-head">
+                        <span class="param-label">性能模式</span>
+                        <span class="param-note" id="perfModeNote">自动</span>
+                      </div>
+                      <div class="segmented" data-setting="performanceMode" role="radiogroup" aria-label="性能模式">
+                        <button type="button" role="radio" data-value="auto" aria-checked="true">自动</button>
+                        <button type="button" role="radio" data-value="on" aria-checked="false">开启</button>
+                        <button type="button" role="radio" data-value="off" aria-checked="false">关闭</button>
+                      </div>
+                      <p class="param-hint" id="perfParamHint">老设备建议保持自动：自动降到 720p/30fps</p>
+                    </div>
+                  </div>
+
+                  <div class="param-group">
+                    <h3 class="param-group-title">保存位置</h3>
+                    <div class="path-box">
+                      <svg class="icon path-icon" aria-hidden="true"><use href="#i-folder"/></svg>
+                      <span class="path-text" id="outputDirText" title="">—</span>
+                      <button type="button" class="btn btn-sm" id="btnChangeDir">更改</button>
+                    </div>
+                    <p class="param-hint">录制完成的视频会自动收录到素材库</p>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <!-- 录制参数 -->
+            <aside class="record-aside">
+              <section class="panel params-panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">录制参数</h2>
+                  <span class="panel-badge">自动保存</span>
+                </div>
+                <div class="params-body">
+                  <div class="param-group">
+                    <h3 class="param-group-title">声音</h3>
+                    <div class="param-row">
+                      <div class="param-info">
+                        <div class="param-label">系统声音</div>
+                        <div class="param-desc">录制电脑播放的声音</div>
+                      </div>
+                      <button type="button" class="switch" data-setting="systemAudio" role="switch" aria-checked="true" aria-label="系统声音"><span class="switch-thumb"></span></button>
+                    </div>
+                    <div class="param-row">
+                      <div class="param-info">
+                        <div class="param-label">麦克风</div>
+                        <div class="param-desc">同时录制麦克风输入</div>
+                      </div>
+                      <button type="button" class="switch" data-setting="microphone" role="switch" aria-checked="false" aria-label="麦克风"><span class="switch-thumb"></span></button>
+                    </div>
+                    <div class="param-row param-row-stack" id="micDeviceRow">
+                      <div class="param-row-head">
+                        <span class="param-label">麦克风设备</span>
+                        <span class="param-note" id="micDeviceNote">开启麦克风后可选择</span>
+                      </div>
+                      <div class="select-wrap">
+                        <select class="select" id="micDeviceSelect" data-mic-select aria-label="麦克风设备"></select>
+                        <svg class="icon select-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="param-group">
+                    <h3 class="param-group-title">画面</h3>
+                    <div class="param-row">
+                      <span class="param-label">帧率</span>
+                      <div class="segmented" data-setting="fps" role="radiogroup" aria-label="帧率">
+                        <button type="button" role="radio" data-value="30" aria-checked="true">30 fps</button>
+                        <button type="button" role="radio" data-value="60" aria-checked="false">60 fps</button>
+                      </div>
+                    </div>
+                    <div class="param-row">
+                      <span class="param-label">画质</span>
+                      <div class="segmented" data-setting="quality" role="radiogroup" aria-label="画质">
+                        <button type="button" role="radio" data-value="standard" aria-checked="false">标准</button>
+                        <button type="button" role="radio" data-value="high" aria-checked="true">高清</button>
+                        <button type="button" role="radio" data-value="ultra" aria-checked="false">超清</button>
+                      </div>
+                    </div>
+                    <div class="param-row">
+                      <span class="param-label">格式</span>
+                      <div class="segmented" data-setting="format" role="radiogroup" aria-label="保存格式">
+                        <button type="button" role="radio" data-value="mp4" aria-checked="true">MP4</button>
+                        <button type="button" role="radio" data-value="webm" aria-checked="false">WebM</button>
+                      </div>
+                    </div>
+                    <p class="param-hint param-hint-row" id="formatHint">MP4 兼容性最好</p>
+                    <div class="param-row">
+                      <span class="param-label">倒计时</span>
+                      <div class="segmented" data-setting="countdown" role="radiogroup" aria-label="倒计时">
+                        <button type="button" role="radio" data-value="0" aria-checked="false">关闭</button>
+                        <button type="button" role="radio" data-value="3" aria-checked="true">3 秒</button>
+                        <button type="button" role="radio" data-value="5" aria-checked="false">5 秒</button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </section>
+            </aside>
+          </div>
+
+          <!-- 底部主操作区 -->
+          <div class="action-dock" id="actionDock">
+            <div class="dock-inner">
+              <div class="action-idle" id="actionIdle">
+                <button type="button" class="record-btn" id="btnStart">
+                  <span class="record-dot"><span class="record-dot-core"></span></span>
+                  <span class="record-btn-label">开始录制</span>
+                </button>
+                <p class="action-hint" id="actionHint"></p>
+              </div>
+
+              <div class="action-recording" id="actionRecording" hidden>
+                <div class="rec-live">
+                  <span class="rec-pulse" aria-hidden="true"></span>
+                  <div class="rec-live-text">
+                    <span class="rec-timer" id="recTimer">00:00</span>
+                    <span class="rec-source" id="recSource">—</span>
+                  </div>
+                  <span class="rec-tag" id="recStateTag">录制中</span>
+                </div>
+                <div class="rec-buttons">
+                  <button type="button" class="btn rec-pause" id="btnPause">
+                    <svg class="icon" aria-hidden="true"><use id="pauseIconUse" href="#i-pause"/></svg>
+                    <span id="btnPauseLabel">暂停</span>
+                    <kbd>F10</kbd>
+                  </button>
+                  <button type="button" class="btn rec-stop" id="btnStop">
+                    <svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>
+                    <span>停止录制</span>
+                    <kbd>F9</kbd>
+                  </button>
+                </div>
+              </div>
+
+              <div class="action-processing" id="actionProcessing" hidden>
+                <span class="spinner spinner-lg" aria-hidden="true"></span>
+                <div class="processing-text">
+                  <strong>正在保存视频…</strong>
+                  <span>完成后会自动打开素材库</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== 页 2：素材库 ==================== -->
+        <section class="page" id="page-library" data-page="library">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">素材库</h1>
+              <p class="page-sub" id="librarySub">加载中…</p>
+            </div>
+            <div class="page-actions">
+              <button type="button" class="btn" id="btnLibOpenDir">
+                <svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>
+                <span>打开文件夹</span>
+              </button>
+              <button type="button" class="icon-btn" id="btnLibRefresh" title="刷新" aria-label="刷新">
+                <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="rec-grid" id="recGrid" hidden></div>
+          <div class="lib-skeleton" id="libSkeleton" aria-hidden="true"></div>
+          <div class="empty-state" id="libEmpty" hidden>
+            <div class="empty-art"><svg class="icon" aria-hidden="true"><use href="#i-film"/></svg></div>
+            <h2 class="empty-title">还没有录制内容</h2>
+            <p class="empty-desc">完成一次录制后，视频会自动出现在这里</p>
+            <button type="button" class="btn btn-primary" id="btnEmptyStart">
+              <svg class="icon" aria-hidden="true"><use href="#i-record"/></svg>
+              <span>开始录制</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ==================== 页 3：设置 ==================== -->
+        <section class="page" id="page-settings" data-page="settings">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">设置</h1>
+              <p class="page-sub">调整默认录制参数与应用行为，修改即时生效</p>
+            </div>
+          </div>
+
+          <div class="settings-list">
+            <section class="settings-card">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">保存与格式</h2>
+                  <p class="settings-desc">视频保存位置与默认输出参数</p>
+                </div>
+                <span class="settings-tip">即时生效</span>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">保存目录</div>
+                  <div class="setting-desc">录制完成后视频自动保存到此文件夹</div>
+                </div>
+                <div class="setting-control">
+                  <button type="button" class="path-box path-box-btn" data-action="open-output-dir" title="打开保存目录">
+                    <svg class="icon path-icon" aria-hidden="true"><use href="#i-folder"/></svg>
+                    <span class="path-text" id="settingsDirText">—</span>
+                  </button>
+                  <button type="button" class="btn btn-sm" id="btnSettingsChangeDir">更改</button>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">默认格式</div>
+                  <div class="setting-desc">MP4 兼容性最好，WebM 文件体积更小</div>
+                </div>
+                <div class="setting-control">
+                  <div class="segmented" data-setting="format" role="radiogroup" aria-label="默认格式">
+                    <button type="button" role="radio" data-value="mp4" aria-checked="true">MP4</button>
+                    <button type="button" role="radio" data-value="webm" aria-checked="false">WebM</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">默认画质</div>
+                  <div class="setting-desc">画质越高，细节越清晰、文件越大</div>
+                </div>
+                <div class="setting-control">
+                  <div class="segmented" data-setting="quality" role="radiogroup" aria-label="默认画质">
+                    <button type="button" role="radio" data-value="standard" aria-checked="false">标准</button>
+                    <button type="button" role="radio" data-value="high" aria-checked="true">高清</button>
+                    <button type="button" role="radio" data-value="ultra" aria-checked="false">超清</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">默认帧率</div>
+                  <div class="setting-desc">60 fps 画面更流畅，30 fps 占用更低</div>
+                </div>
+                <div class="setting-control">
+                  <div class="segmented" data-setting="fps" role="radiogroup" aria-label="默认帧率">
+                    <button type="button" role="radio" data-value="30" aria-checked="true">30 fps</button>
+                    <button type="button" role="radio" data-value="60" aria-checked="false">60 fps</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-card">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">音频</h2>
+                  <p class="settings-desc">系统声音与麦克风录制选项</p>
+                </div>
+                <span class="settings-tip">即时生效</span>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">系统声音</div>
+                  <div class="setting-desc">录制电脑正在播放的声音</div>
+                </div>
+                <div class="setting-control">
+                  <button type="button" class="switch" data-setting="systemAudio" role="switch" aria-checked="true" aria-label="系统声音"><span class="switch-thumb"></span></button>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">麦克风</div>
+                  <div class="setting-desc">同时录制麦克风输入，适合讲解配音</div>
+                </div>
+                <div class="setting-control">
+                  <button type="button" class="switch" data-setting="microphone" role="switch" aria-checked="false" aria-label="麦克风"><span class="switch-thumb"></span></button>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">麦克风设备</div>
+                  <div class="setting-desc">选择录音使用的输入设备</div>
+                </div>
+                <div class="setting-control setting-control-wide">
+                  <div class="select-wrap">
+                    <select class="select" data-mic-select aria-label="麦克风设备"></select>
+                    <svg class="icon select-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-card">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">录制行为</h2>
+                  <p class="settings-desc">开始录制前的准备与界面表现</p>
+                </div>
+                <span class="settings-tip">即时生效</span>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">倒计时</div>
+                  <div class="setting-desc">开始录制前的准备时间</div>
+                </div>
+                <div class="setting-control">
+                  <div class="segmented" data-setting="countdown" role="radiogroup" aria-label="倒计时">
+                    <button type="button" role="radio" data-value="0" aria-checked="false">关闭</button>
+                    <button type="button" role="radio" data-value="3" aria-checked="true">3 秒</button>
+                    <button type="button" role="radio" data-value="5" aria-checked="false">5 秒</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">录制时隐藏主窗口</div>
+                  <div class="setting-desc">全屏与区域录制时自动隐藏本窗口，避免被录入画面</div>
+                </div>
+                <div class="setting-control">
+                  <button type="button" class="switch" data-setting="hideMainWindow" role="switch" aria-checked="true" aria-label="录制时隐藏主窗口"><span class="switch-thumb"></span></button>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-card">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">性能</h2>
+                  <p class="settings-desc">老设备或低配电脑建议保持「自动」</p>
+                </div>
+                <span class="settings-tip" id="perfCardTip">自动</span>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">性能模式</div>
+                  <div class="setting-desc">自动：检测到低配置时把采集限制为 720p / 30fps，并精简界面特效</div>
+                </div>
+                <div class="setting-control">
+                  <div class="segmented" data-setting="performanceMode" role="radiogroup" aria-label="性能模式">
+                    <button type="button" role="radio" data-value="auto" aria-checked="true">自动</button>
+                    <button type="button" role="radio" data-value="on" aria-checked="false">开启</button>
+                    <button type="button" role="radio" data-value="off" aria-checked="false">关闭</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">当前状态</div>
+                  <div class="setting-desc" id="perfHint">正在读取硬件信息…</div>
+                </div>
+                <div class="setting-control"><span class="badge badge-neutral" id="perfBadge">检测中</span></div>
+              </div>
+            </section>
+
+            <section class="settings-card">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">快捷键</h2>
+                  <p class="settings-desc">全局快捷键，录制过程中随时可用</p>
+                </div>
+                <span class="settings-tip">只读</span>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">停止录制</div>
+                  <div class="setting-desc">结束当前录制并自动保存视频</div>
+                </div>
+                <div class="setting-control"><kbd>F9</kbd></div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">暂停 / 继续</div>
+                  <div class="setting-desc">暂停或恢复当前录制，暂停时间不计入时长</div>
+                </div>
+                <div class="setting-control"><kbd>F10</kbd></div>
+              </div>
+            </section>
+
+            <section class="settings-card">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">关于</h2>
+                  <p class="settings-desc">应用信息与运行环境</p>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info"><div class="setting-label">应用名称</div></div>
+                <div class="setting-control"><span class="about-value" id="aboutAppName">NovaRec</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info"><div class="setting-label">版本</div></div>
+                <div class="setting-control"><span class="about-value" id="aboutVersion">—</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info"><div class="setting-label">Electron 版本</div></div>
+                <div class="setting-control"><span class="about-value" id="aboutElectron">—</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">处理器 / 内存</div>
+                  <div class="setting-desc">用于自动判断是否需要性能模式</div>
+                </div>
+                <div class="setting-control"><span class="about-value" id="aboutHardware">—</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">性能模式</div>
+                  <div class="setting-desc">采集分辨率/帧率上限与界面特效策略</div>
+                </div>
+                <div class="setting-control"><span class="badge badge-neutral" id="aboutPerf">—</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">FFmpeg</div>
+                  <div class="setting-desc">用于转换与合成为 MP4</div>
+                </div>
+                <div class="setting-control"><span class="badge badge-neutral" id="aboutFfmpeg">检测中…</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">输出目录</div>
+                  <div class="setting-desc">当前视频保存位置</div>
+                </div>
+                <div class="setting-control">
+                  <span class="about-value mono" id="aboutOutputDir">—</span>
+                  <button type="button" class="btn btn-sm" data-action="open-output-dir">打开</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- 底部状态栏 -->
+    <footer class="statusbar">
+      <div class="statusbar-left">
+        <span class="app-version">NovaRec <span id="sidebarVersion">v1.0.0</span></span>
+        <div class="mock-badge" id="mockBadge" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-flask"/></svg>
+          <span>预览模式 · Mock 数据</span>
+        </div>
+      </div>
+      <div class="statusbar-right">
+        <button type="button" class="link-btn" id="btnOpenDir">
+          <svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>
+          <span>打开保存目录</span>
+        </button>
+      </div>
+    </footer>
+
+    <!-- 倒计时遮罩 -->
+    <div class="countdown-overlay" id="countdownOverlay" hidden>
+      <div class="countdown-content">
+        <div class="countdown-ring">
+          <svg class="countdown-ring-svg" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-track" cx="60" cy="60" r="54"/>
+            <circle class="ring-dash" cx="60" cy="60" r="54"/>
+          </svg>
+          <span class="countdown-number" id="countdownNumber">3</span>
+        </div>
+        <p class="countdown-title">即将开始录制</p>
+        <p class="countdown-source" id="countdownSource"></p>
+        <p class="countdown-tip">请切换到需要录制的内容</p>
+      </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+  </div>
+</body>
+</html>

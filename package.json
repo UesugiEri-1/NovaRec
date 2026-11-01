@@ -1,0 +1,40 @@
+{
+  "name": "novarec",
+  "productName": "NovaRec",
+  "version": "1.0.0",
+  "description": "NovaRec · 免费开源的 Windows 录屏软件（全屏 / 区域 / 窗口 / 系统声音）",
+  "main": "src/main/main.js",
+  "author": "NovaRec contributors",
+  "license": "MIT",
+  "keywords": [
+    "screen-recorder",
+    "screen-capture",
+    "electron",
+    "windows",
+    "录屏",
+    "桌面录制"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "start:nosandbox": "electron . --no-sandbox",
+    "icons": "electron scripts/make-icons-v2.mjs --no-sandbox",
+    "screenshot": "electron scripts/screenshot.mjs --no-sandbox",
+    "selftest": "electron scripts/selftest.mjs --no-sandbox",
+    "build": "node scripts/package.mjs --zip",
+    "build:portable": "node scripts/package.mjs",
+    "build:installer": "node scripts/make-installer.mjs",
+    "cert": "powershell -ExecutionPolicy Bypass -File scripts/create-cert.ps1",
+    "verify": "powershell -ExecutionPolicy Bypass -File scripts/verify-packaged.ps1"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0"
+  }
+}
