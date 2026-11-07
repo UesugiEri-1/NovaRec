@@ -157,6 +157,7 @@ npm run verify           # 校验打包产物是否完整可启动
 - [docs/verification.md](docs/verification.md)：端到端验证记录
 - [docs/perf-baseline.md](docs/perf-baseline.md)：v1.1.0 录制性能基准（CPU/内存/帧率/起停延迟）
 - [docs/updater.md](docs/updater.md)：自动更新的渠道、发布方式与已知限制
+- [docs/release-1.1.0.md](docs/release-1.1.0.md)：v1.1.0 发布清单（上传 Release / version.json / 推送源码三种方式）
 - [docs/publish.md](docs/publish.md)：把仓库发布到 GitHub、打 Release 的流程
 - [docs/ipc-contract.md](docs/ipc-contract.md)：主进程 ↔ 渲染进程 IPC 契约
 - [CONTRIBUTING.md](CONTRIBUTING.md)：参与开发的方式与规范
