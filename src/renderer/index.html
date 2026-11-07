@@ -655,6 +655,54 @@
               </div>
             </section>
 
+            <section class="settings-card" id="updateCard">
+              <div class="settings-head">
+                <div>
+                  <h2 class="settings-title">版本更新</h2>
+                  <p class="settings-desc">检查并安装新版本，更新不影响已保存的录像与设置</p>
+                </div>
+                <span class="badge badge-neutral" id="updateStatusBadge">未检查</span>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">当前版本</div>
+                  <div class="setting-desc" id="updateStatusText">尚未检查更新</div>
+                </div>
+                <div class="setting-control">
+                  <span class="about-value mono" id="updateCurrentVersion">—</span>
+                  <button type="button" class="btn btn-sm" id="btnUpdateCheck">检查更新</button>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <div class="setting-label">自动检查更新</div>
+                  <div class="setting-desc">启动后自动检查一次（24 小时内不重复），仅提示，不会自动安装</div>
+                </div>
+                <div class="setting-control">
+                  <button type="button" class="switch" data-setting="autoCheckUpdates" role="switch" aria-checked="true" aria-label="自动检查更新"><span class="switch-thumb"></span></button>
+                </div>
+              </div>
+
+              <div class="update-panel" id="updatePanel" hidden>
+                <div class="update-panel-head">
+                  <div class="update-panel-title" id="updateVersionTitle">发现新版本</div>
+                  <span class="update-panel-tip" id="updateSkippedTip" hidden>已跳过此版本</span>
+                </div>
+                <div class="update-notes" id="updateNotes"></div>
+                <div class="update-progress" id="updateProgressWrap" hidden>
+                  <div class="update-progress-bar"><div class="update-progress-fill" id="updateProgressFill"></div></div>
+                  <span class="update-progress-text" id="updateProgressText">0%</span>
+                </div>
+                <div class="update-actions">
+                  <button type="button" class="btn btn-sm btn-primary" id="btnUpdateDownload">下载并安装</button>
+                  <button type="button" class="btn btn-sm" id="btnUpdateRelease">查看发布页</button>
+                  <button type="button" class="link-btn" id="btnUpdateSkip">跳过此版本</button>
+                </div>
+              </div>
+            </section>
+
             <section class="settings-card">
               <div class="settings-head">
                 <div>

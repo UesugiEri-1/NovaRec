@@ -19,11 +19,16 @@ function guessAppName(title) {
   return "";
 }
 
-async function listSources() {
+// 采集源枚举。thumbnails === false 时只取 id/name/display_id，不做窗口截图与 PNG 编码，
+// 主进程几毫秒即可返回（带缩略图要几十到几百 ms，还有每个窗口一次同步 toDataURL）；
+// 渲染层首屏先用轻量版拿到列表，首帧之后再补一轮带缩略图的。
+async function listSources(opts) {
+  const o = opts || {};
+  const wantThumb = o.thumbnails !== false;
   const raw = await desktopCapturer.getSources({
     types: ["screen", "window"],
-    thumbnailSize: { width: 480, height: 270 },
-    fetchWindowIcons: true
+    thumbnailSize: wantThumb ? { width: 480, height: 270 } : { width: 0, height: 0 },
+    fetchWindowIcons: wantThumb && o.icons !== false
   });
   const screens = [];
   const windows = [];

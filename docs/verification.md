@@ -109,3 +109,95 @@
 | 性能模式 | 1280×720 | 1.50 MB | 25.2% | 1336 ms |
 
 完整的逐项数据见上文「性能优化与性能模式验证」小节，基准脚本为 `scripts/perfbench.mjs`（静默基准，不发声采样）。
+
+---
+
+## v1.1.0 验证记录（2026-11-07，同一台验证机）
+
+v1.1.0 的优化改动（去 ffmpeg、纯 JS 重封装、dxcompiler 裁剪、两段式起录、自动更新）全部重新做了端到端验证。
+
+### 1. 打包产物三模式录制（真实 UI + 系统声音）
+
+脚本：`node scripts/verify-packaged-record.mjs --exe artifacts/dist-v8/NovaRec-win32-x64/NovaRec.exe`
+（下表为 v1.1.0 首次全量回归数据；最终 dist-v8 复跑 SUMMARY ok=true，screen/region/window 三模式 PASS、退出码 0）
+（启动打包后的 exe，通过 CDP 驱动渲染层的 window.novarec API，走与用户完全相同的录制路径）
+
+| 模式 | 分辨率 | 时长 | 文件 | 流信息 | 结果 |
+| --- | --- | --- | --- | --- | --- |
+| 全屏 | 1920×1080 | 3.24 s | 771,995 B | H.264 Baseline + AAC 48 kHz 立体声，28.81 fps，transcode=remux | PASS |
+| 区域（DIP 960×540） | 1200×676（×1.25 物理像素） | 3.21 s | 492,957 B | H.264 + AAC，28.33 fps，transcode=remux | PASS |
+| 窗口 | 1920×1030 | 3.24 s | 1,064,455 B | H.264 + AAC，28.48 fps，transcode=remux | PASS |
+
+- 三个文件都是打包产物直接产出，收尾全部走纯 JS 重封装（transcode=remux，无 ffmpeg 子进程），ffmpeg 仅用于事后解析校验
+- 证据：artifacts/verify-packaged/result.json、artifacts/verify-packaged/verify.log、artifacts/verify-packaged/out/*.mp4 + 同名 .jpg 封面
+
+### 2. 纯 JS 重封装正确性（离线单个文件验证）
+
+- MP4：`ffmpeg -v error -i out.mp4 -f null -` 全解码无错误；`ffmpeg -i` 解析 Duration、AAC 48 kHz 立体声、H.264 Baseline 1920×1080 30fps、
+  handler_name SoundHandler/VideoHandler；原 fMP4 的 mvhd duration=0 问题已消除（moov 前置、完整 stbl 表 = faststart）
+- WebM：固定后 durationMs=4019、clusters 按关键帧重切、Cues 每簇一个；`ffmpeg -ss 2.5` 与 `-ss 3.6` 均无参考帧缺失报错，
+  视频 pts 序列与原始文件逐帧一致、音频帧数 66=66 → 重封装不改变时间戳/不重新编码
+- 证据：artifacts/probe-formats/ 下的样本与校验输出
+
+### 3. 性能基准（8 用例 × 10 秒，scripts/perfbench.mjs）
+
+完整表格见 [perf-baseline.md](perf-baseline.md)，核心数字：
+
+- 全屏 MP4 1080p30：28.83 fps、掉帧 5.0%、单核 CPU 28.3%（GPU 进程 14.2%、渲染器 7.6%）、内存峰值 736 MB、收尾 remux 28 ms
+- 区域 MP4（1600×900）：28.86 fps、掉帧 4.3%、单核 32.1%
+- 窗口 MP4：30.01 fps、掉帧 0%、单核 22.2%
+- WebM/VP9 1080p30：28.6 fps，但单核 56.3%（渲染器 45.2%）、内存 914 MB
+- 1080p60：36.12 fps（掉帧 40.5%，硬件编码能力限制）
+- 起录延迟：倒计时结束 → 真正开录 5–16 ms（v1.0 为 256–284 ms）
+- 主线程：事件循环延迟 mean 1.5–1.7 ms、p95 ≤2.6 ms；100 ms 定时器最大偏差 2–6 ms
+
+> 测试保真度说明：早期基准把「动画演示窗」当主窗，开录前被隐藏导致桌面静止，DXGI 桌面复制不出新帧（采集掉到 ~2 fps）；
+> 现版本拆成「动画源窗（置顶 60fps，不被隐藏）+ 占位主窗」，每例记录 demoFps=59.9~60.0 作为保真度证据。
+
+### 4. 启动耗时（scripts/measure-startup.mjs）
+
+- 冷启动（首次，dist-v5）：进程启动 → whenReady 641 ms → 主窗创建 796 ms → 渲染层完成 1857 ms → 窗口可见 1871 ms
+- 热启动（连续 2 次，dist-v5）：whenReady 266–405 ms → 主窗创建 355–544 ms → 渲染层完成 1304–1636 ms → 窗口可见 1316–1530 ms；
+  渲染层 API 可用 1.14–1.24 s
+- 启动优化后（dist-v7）：whenReady 368–520 ms、主窗创建 368–527 ms、渲染层完成 941–1470 ms、apiReady 692–901 ms；
+  窗口仍等 ready-to-show 才显示，window_shown 1197/1316 ms
+- 立即显示优化后（dist-v8）：建窗 + loadFile 后 setOpacity(0) → show → 180 ms 淡入，**window_shown 319.7 / 388.9 ms**
+  （改善 0.8–0.9 s，用户不再看到黑屏等待）；renderer_loaded 1020–1208 ms、apiReady 冷 801–1016 ms / 热 801–1446 ms、
+  Layout 97–133 ms、Task 118–168 ms 均不变，说明交互可用时间未受影响，只是消除了感知空窗
+- 渲染层自身开销：ScriptDuration 12 ms、LayoutDuration 123 ms、TaskDuration 206 ms → 启动时间主要在 Electron/渲染进程启动与首帧，不在应用 JS
+- 证据：artifacts/startup/startup.json 与各 run 的 data-*/dev.log（含 `perf when_ready/window_created/renderer_loaded/window_shown` 打点）
+
+### 5. 体积
+
+以最终交付构建 artifacts/dist-v8 为准（与 dist-v5 相比再省约 1.2 MB 未使用图标母版）：
+
+- 便携目录：299,022,765 B（285.1 MiB，19 个文件）
+- 便携 zip：135,971,874 B（129.7 MiB）
+- NSIS 安装包（LZMA maximum）：97,039,803 B（92.5 MiB / 97.0 MB）
+- 单文件便携 exe（7z 自解压）：96,685,191 B（92.2 MiB / 96.7 MB）
+- 打包校验：asar 含 main/renderer/mp4remux/webmfix/mediafix、无 app.asar.unpacked、无 ffmpeg 依赖、无 dxcompiler.dll、保留 SwiftShader
+- 与 1.0.0 对比：解压后 421 MB → 285 MB（-32%）、zip 173 MB → 129.6 MB（-25%）、安装包 122 MB → 97 MB（-20%），
+  文件数 86 → 19；体积三路压缩已到 LZMA 固实极限（285.1 MiB → 97.0 MB ≈ 3.09×），更新链仍为整包约 97 MB
+
+### 6. 自动更新
+
+- `node scripts/test-updater.mjs`：33 项全部通过（版本比较、渠道降级、超时、状态持久化、跳过版本、下载校验等）
+- 当前上游仓库无 Release / version.json，实际检查返回中文提示「未找到发布版本信息…」，属预期；仓库根已放置 version.json 供回退渠道使用
+
+### 7. 体积/性能二轮优化与停止评审（2026-11-07）
+
+由三个独立只读评审代理复核「是否还能继续优化」，三方均回 AGREE_STOP 后才停止（评审材料见
+[optimization-review-v2.md](optimization-review-v2.md)）：
+
+- **体积评审**：删 3 个 DLL（-11.1 MB 未压缩，压缩后仅省 3.5–4.5 MB，且失去软件光栅兜底）、
+  electron_wer（0.43 MB）、UPX（破坏签名/杀软误报）、LICENSES/resources.pak/icudtl（不重编动不了）均判不做；
+  分发侧已达 LZMA 固实压缩极限（285.1 MiB → 97.0 MB ≈ 3.09×）。实操建议：日常用 zip 或安装包，
+  单文件便携 exe 每次启动自解压到 %TEMP%，慢 2–5 秒
+- **启动评审**：采纳「建窗后立即显示再淡入」（window_shown 1197/1316 ms → 319.7/388.9 ms）；
+  paintWhenInitiallyHidden、精简首屏 DOM 判为收益过小不做
+- **运行时评审**：WebM 性能模式限时 A/B 三组（VP8 720p 26.3fps/12.4% 掉帧、VP9 720p 27.6fps/7.9%、
+  只压码率 1080p 27.8fps）均与 MP4 同档 28.87fps 相差 <10%，无配置级修复空间，判为 Chromium 编码器固有开销，
+  默认仍推荐 MP4；其余（1080p60 追帧、区域 canvas 裁剪、内存）判为收益不足
+
+最终构建 artifacts/dist-v8 已通过三模式录制回归、启动耗时实测与打包校验，交付文件：
+便携 zip（135,971,874 B）、NSIS 安装包（97,039,803 B）、单文件便携 exe（96,685,191 B）。

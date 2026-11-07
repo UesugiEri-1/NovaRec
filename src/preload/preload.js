@@ -26,10 +26,12 @@ const api = {
   getAppInfo: function () { return invoke("app:info"); },
   getAudioDevices: function () { return invoke("audio:devices"); },
 
-  listSources: function () { return invoke("sources:list"); },
+  // opts: { fast: true } 只取 id/name（不生成缩略图）；省略=带缩略图/图标的完整列表
+  listSources: function (opts) { return invoke("sources:list", opts || undefined); },
   getDisplayInfo: function () { return invoke("display:info"); },
   selectRegion: function () { return invoke("region:select"); },
 
+  prewarmCapture: function () { return invoke("capture:prewarm"); },
   startRecording: function (req) { return invoke("recording:start", req || {}); },
   stopRecording: function () { return invoke("recording:stop"); },
   togglePause: function () { return invoke("recording:togglePause"); },
@@ -44,6 +46,18 @@ const api = {
   revealRecording: function (id) { return invoke("library:reveal", id); },
   openRecording: function (id) { return invoke("library:open", id); },
 
+  // 自动更新：检查 → 下载 → 安装；进度通过 update:progress 推送
+  updates: {
+    check: function () { return invoke("update:check"); },
+    download: function () { return invoke("update:download"); },
+    install: function () { return invoke("update:install"); },
+    skip: function (version) { return invoke("update:skip", version); },
+    openRelease: function (url) { return invoke("update:openRelease", url); },
+    onProgress: function (cb) { return subscribe("update:progress", cb); },
+    onAvailable: function (cb) { return subscribe("update:available", cb); },
+    getCurrentVersion: function () { return invoke("update:currentVersion"); }
+  },
+
   window: {
     minimize: function () { return invoke("win:minimize"); },
     toggleMaximize: function () { return invoke("win:toggleMaximize"); },
@@ -54,3 +68,5 @@ const api = {
 };
 
 contextBridge.exposeInMainWorld("novarec", api);
+// 更新能力同时挂一份到 window.nova.updates（契约见 docs/ipc-contract.md）
+contextBridge.exposeInMainWorld("nova", { updates: api.updates });

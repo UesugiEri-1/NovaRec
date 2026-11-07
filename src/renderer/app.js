@@ -19,7 +19,9 @@
     countdown: 3,
     hideMainWindow: true,
     showCursor: true,
-    performanceMode: 'auto'
+    performanceMode: 'auto',
+    autoCheckUpdates: true,
+    skippedVersion: ''
   };
 
   var PERF_LABEL = '720p · 30fps · 约 4.5 Mbps';
@@ -145,7 +147,7 @@
     var HOME_DIR = 'D:\\Videos\\NovaRec';
     var ALT_DIR = 'E:\\ScreenRecords\\NovaRec';
 
-    var listeners = { settings: [], state: [], saved: [], error: [], toast: [], maximized: [] };
+    var listeners = { settings: [], state: [], saved: [], error: [], toast: [], maximized: [], updateProgress: [], updateAvailable: [] };
     var timers = [];
     var maximized = false;
     var region = null;
@@ -162,7 +164,9 @@
       countdown: 3,
       hideMainWindow: true,
       showCursor: true,
-      performanceMode: 'auto'
+      performanceMode: 'auto',
+      autoCheckUpdates: true,
+      skippedVersion: ''
     };
 
     var recState = { state: 'idle', elapsedMs: 0 };
@@ -608,6 +612,51 @@
       performance: { mode: 'auto', enabled: true, label: '720p · 30fps · 约 4.5 Mbps', maxHeight: 720, fpsCap: 30 }
     };
 
+    /* ---- 版本更新（Mock：模拟检查/下载进度/安装确认） ---- */
+    var mockUpdates = {
+      check: function () {
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            resolve({
+              ok: true,
+              currentVersion: appInfo.version,
+              latestVersion: '1.1.0',
+              hasUpdate: true,
+              notes: '1. 新增自动更新与版本检查\n2. 优化录制性能与内存占用\n3. 修复托盘菜单偶发闪烁',
+              releaseUrl: 'https://github.com/UesugiEri-1/NovaRec/releases',
+              error: ''
+            });
+          }, 620);
+        });
+      },
+      download: function () {
+        return new Promise(function (resolve) {
+          var percent = 0;
+          var timer = setInterval(function () {
+            percent = Math.min(100, percent + 20);
+            emit('updateProgress', { percent: percent });
+            if (percent >= 100) {
+              clearInterval(timer);
+              resolve({ ok: true, filePath: 'C:\\Users\\Public\\NovaRec\\updates\\NovaRec-Setup-1.1.0-x64.exe' });
+            }
+          }, 180);
+          pushTimer(timer);
+        });
+      },
+      install: function () {
+        emit('toast', { type: 'info', message: '（Mock）安装包已启动，应用将退出并覆盖安装' });
+        return Promise.resolve({ ok: true, canceled: false, error: '' });
+      },
+      skip: function () { return Promise.resolve({ ok: true }); },
+      openRelease: function () {
+        emit('toast', { type: 'info', message: '（Mock）打开发布页' });
+        return Promise.resolve({ ok: true });
+      },
+      getCurrentVersion: function () { return Promise.resolve(appInfo.version); },
+      onProgress: function (cb) { return on('updateProgress', cb); },
+      onAvailable: function (cb) { return on('updateAvailable', cb); }
+    };
+
     return {
       getSettings: function () { return Promise.resolve(clone(settings)); },
       setSettings: function (patch) {
@@ -622,6 +671,7 @@
         return Promise.resolve(true);
       },
       getAppInfo: function () { return Promise.resolve(clone(appInfo)); },
+      updates: mockUpdates,
 
       listSources: function () {
         return new Promise(function (resolve) {
@@ -726,6 +776,15 @@
     appInfo: null,
     display: null,
 
+    update: {
+      currentVersion: '',
+      phase: 'idle', // idle | checking | latest | available | downloading | downloaded | error
+      result: null,
+      error: '',
+      percent: 0,
+      filePath: ''
+    },
+
     screens: [],
     windows: [],
     selectedScreenId: null,
@@ -751,6 +810,7 @@
     confirmDeleteId: null,
 
     micDevices: [],
+    micDevicesLoaded: false,
     micLabelAsked: false,
 
     initialized: false
@@ -828,6 +888,21 @@
     dom.aboutElectron = $('#aboutElectron');
     dom.aboutFfmpeg = $('#aboutFfmpeg');
     dom.aboutOutputDir = $('#aboutOutputDir');
+
+    dom.updateStatusBadge = $('#updateStatusBadge');
+    dom.updateStatusText = $('#updateStatusText');
+    dom.updateCurrentVersion = $('#updateCurrentVersion');
+    dom.btnUpdateCheck = $('#btnUpdateCheck');
+    dom.updatePanel = $('#updatePanel');
+    dom.updateVersionTitle = $('#updateVersionTitle');
+    dom.updateSkippedTip = $('#updateSkippedTip');
+    dom.updateNotes = $('#updateNotes');
+    dom.updateProgressWrap = $('#updateProgressWrap');
+    dom.updateProgressFill = $('#updateProgressFill');
+    dom.updateProgressText = $('#updateProgressText');
+    dom.btnUpdateDownload = $('#btnUpdateDownload');
+    dom.btnUpdateRelease = $('#btnUpdateRelease');
+    dom.btnUpdateSkip = $('#btnUpdateSkip');
   }
 
   /* =========================================================
@@ -1053,6 +1128,15 @@
     renderMicHint();
   }
 
+  // 设备名字（label）需要先有麦克风权限：没有权限时 enumerateDevices 只能给出
+  // “麦克风 1/2…”，要再 getUserMedia 打开一次才能拿到真名。启动阶段做这件事既拖慢首屏，
+  // 又会让系统麦克风指示灯一闪，所以改成用户真正需要时（进设置页/点麦克风开关）再取。
+  function ensureMicDevices() {
+    if (state.micDevicesLoaded) return;
+    state.micDevicesLoaded = true;
+    refreshMicDevices();
+  }
+
   function refreshMicDevices() {
     var media = navigator.mediaDevices;
     if (!media || typeof media.enumerateDevices !== 'function') {
@@ -1110,15 +1194,17 @@
     return state.windows.filter(function (item) { return item.id === state.selectedWindowId; })[0] || state.windows[0] || null;
   }
 
-  function loadSources(force) {
+  // fast=true 只要 id/name 的轻量列表（主进程不做窗口截图/PNG 编码）；首屏用它，首帧之后
+  // 再补一轮带缩略图/图标的（scheduleSourcesThumbnails），既能尽快出界面又保住选择和预览。
+  function loadSources(force, fast) {
     if (state.sourcesLoading) return;
-    if (state.sourcesLoaded && !force) {
+    if (state.sourcesLoaded && !force && !fast) {
       renderSource();
       return;
     }
     state.sourcesLoading = true;
     renderSource();
-    Promise.resolve(api.listSources()).then(function (result) {
+    Promise.resolve(api.listSources(fast ? { fast: true } : { force: !!force })).then(function (result) {
       state.screens = (result && result.screens) || [];
       state.windows = (result && result.windows) || [];
       state.sourcesLoaded = true;
@@ -1135,6 +1221,20 @@
       updateStartAvailability();
       pushToast('error', (err && err.message) || '获取录制来源失败');
     });
+  }
+
+  // 首帧之后补一轮带缩略图/窗口图标的采集源：用户打开窗口选择器之前就已就绪，
+  // 又不会把 desktopCapturer 的截图 + PNG 编码压在启动关键路径上。
+  function scheduleSourcesThumbnails() {
+    var run = function () {
+      if (state.sourcesLoading) { setTimeout(run, 250); return; }
+      loadSources(true, false);
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(run, { timeout: 1500 });
+    } else {
+      setTimeout(run, 600);
+    }
   }
 
   /* ---------------- 来源区渲染 ---------------- */
@@ -1800,6 +1900,232 @@
   }
 
   /* =========================================================
+     版本更新（检查 / 下载 / 安装）
+     ========================================================= */
+
+  function updatesApi() {
+    if (api && api.updates && typeof api.updates.check === 'function') return api.updates;
+    if (typeof window !== 'undefined' && window.nova && window.nova.updates) return window.nova.updates;
+    return null;
+  }
+
+  // 状态徽章：phase → 文案 / 颜色 / 图标
+  var UPDATE_BADGE = {
+    idle: { text: '未检查', cls: 'badge-neutral' },
+    checking: { text: '检查中…', cls: 'badge-neutral', icon: 'loader' },
+    latest: { text: '已是最新', cls: 'badge-ok', icon: 'check-circle' },
+    available: { text: '有新版本', cls: 'badge-warn', icon: 'refresh' },
+    downloading: { text: '下载中', cls: 'badge-neutral', icon: 'loader' },
+    downloaded: { text: '待安装', cls: 'badge-ok', icon: 'check-circle' },
+    error: { text: '检查失败', cls: 'badge-warn', icon: 'alert' }
+  };
+
+  function updateVersionLabel(version) {
+    return version ? 'v' + version : '—';
+  }
+
+  function renderUpdate() {
+    var view = state.update;
+    if (!dom.updateStatusBadge) return;
+
+    var phase = view.phase;
+    var badge = UPDATE_BADGE[phase] || UPDATE_BADGE.idle;
+    var badgeText = phase === 'downloading' ? '下载中 ' + view.percent + '%' : badge.text;
+    dom.updateStatusBadge.className = 'badge ' + badge.cls + (badge.icon === 'loader' ? ' is-spinning' : '');
+    dom.updateStatusBadge.innerHTML = (badge.icon ? icon(badge.icon) : '') + esc(badgeText);
+
+    var current = view.currentVersion || (state.appInfo && state.appInfo.version) || '';
+    if (dom.updateCurrentVersion) dom.updateCurrentVersion.textContent = updateVersionLabel(current);
+
+    var result = view.result;
+    var latest = (result && result.latestVersion) || '';
+    var statusText = '尚未检查更新';
+    if (phase === 'checking') statusText = '正在检查更新…';
+    else if (phase === 'latest') statusText = '已是最新版本 ' + updateVersionLabel(latest || current);
+    else if (phase === 'available') statusText = '发现新版本 ' + updateVersionLabel(latest) + '（当前 ' + updateVersionLabel(current) + '）';
+    else if (phase === 'downloading') statusText = '正在下载安装包… ' + view.percent + '%';
+    else if (phase === 'downloaded') statusText = '安装包已下载完成，点击「安装并重启」开始更新';
+    else if (phase === 'error') statusText = view.error || '检查更新失败，请稍后重试';
+    if (dom.updateStatusText) dom.updateStatusText.textContent = statusText;
+
+    if (dom.btnUpdateCheck) {
+      var busy = phase === 'checking' || phase === 'downloading';
+      dom.btnUpdateCheck.disabled = busy;
+      dom.btnUpdateCheck.textContent = phase === 'checking' ? '检查中…' : '检查更新';
+    }
+
+    var showPanel = !!(result && result.ok && result.hasUpdate);
+    setHidden(dom.updatePanel, !showPanel);
+    if (!showPanel) return;
+
+    if (dom.updateVersionTitle) dom.updateVersionTitle.textContent = '发现新版本 ' + updateVersionLabel(latest);
+    setHidden(dom.updateSkippedTip, !result.skipped);
+
+    var notes = String(result.notes || '').trim();
+    if (dom.updateNotes) dom.updateNotes.textContent = notes || '该版本没有提供更新说明，可点击「查看发布页」了解详情。';
+
+    var showProgress = phase === 'downloading' || phase === 'downloaded';
+    setHidden(dom.updateProgressWrap, !showProgress);
+    var percent = phase === 'downloaded' ? 100 : view.percent;
+    if (dom.updateProgressFill) dom.updateProgressFill.style.width = percent + '%';
+    if (dom.updateProgressText) dom.updateProgressText.textContent = percent + '%';
+
+    if (dom.btnUpdateDownload) {
+      dom.btnUpdateDownload.textContent = phase === 'downloaded' ? '安装并重启' : '下载并安装';
+      dom.btnUpdateDownload.disabled = phase === 'downloading';
+    }
+    if (dom.btnUpdateRelease) setHidden(dom.btnUpdateRelease, !result.releaseUrl);
+    if (dom.btnUpdateSkip) {
+      dom.btnUpdateSkip.textContent = result.skipped ? '取消跳过' : '跳过此版本';
+      dom.btnUpdateSkip.hidden = phase === 'downloading' || phase === 'downloaded';
+    }
+  }
+
+  function loadUpdateVersion() {
+    var updates = updatesApi();
+    if (updates && typeof updates.getCurrentVersion === 'function') {
+      Promise.resolve(updates.getCurrentVersion()).then(function (version) {
+        if (version) { state.update.currentVersion = String(version); renderUpdate(); }
+      }).catch(function () { /* 版本号读取失败不打扰用户 */ });
+    }
+    renderUpdate();
+  }
+
+  function checkUpdates() {
+    var updates = updatesApi();
+    if (!updates) {
+      pushToast('warning', '当前环境不支持检查更新');
+      return;
+    }
+    if (state.update.phase === 'checking' || state.update.phase === 'downloading') return;
+    state.update.phase = 'checking';
+    state.update.error = '';
+    state.update.result = null;
+    state.update.percent = 0;
+    renderUpdate();
+
+    Promise.resolve(updates.check()).then(function (res) {
+      if (res && res.ok) {
+        state.update.result = res;
+        state.update.currentVersion = res.currentVersion || state.update.currentVersion;
+        state.update.phase = res.hasUpdate ? 'available' : 'latest';
+        if (res.hasUpdate) pushToast('info', '发现新版本 v' + res.latestVersion);
+      } else {
+        state.update.phase = 'error';
+        state.update.error = (res && res.error) || '检查更新失败，请稍后重试';
+        pushToast('error', state.update.error);
+      }
+      renderUpdate();
+    }).catch(function (err) {
+      state.update.phase = 'error';
+      state.update.error = (err && err.message) || '检查更新失败，请稍后重试';
+      pushToast('error', state.update.error);
+      renderUpdate();
+    });
+  }
+
+  function downloadUpdate() {
+    var updates = updatesApi();
+    if (!updates) {
+      pushToast('warning', '当前环境不支持下载更新');
+      return;
+    }
+    if (state.update.phase === 'downloaded') { installUpdate(); return; }
+    if (state.update.phase === 'downloading') return;
+    if (!state.update.result || !state.update.result.hasUpdate) {
+      pushToast('info', '请先检查更新');
+      return;
+    }
+    state.update.phase = 'downloading';
+    state.update.percent = 0;
+    renderUpdate();
+
+    Promise.resolve(updates.download()).then(function (res) {
+      if (res && res.ok) {
+        state.update.phase = 'downloaded';
+        state.update.percent = 100;
+        state.update.filePath = res.filePath || '';
+        pushToast('success', '安装包已下载完成');
+      } else {
+        state.update.phase = 'available';
+        pushToast('error', (res && res.error) || '下载安装包失败');
+      }
+      renderUpdate();
+    }).catch(function (err) {
+      state.update.phase = 'available';
+      pushToast('error', (err && err.message) || '下载安装包失败');
+      renderUpdate();
+    });
+  }
+
+  function installUpdate() {
+    var updates = updatesApi();
+    if (!updates) return;
+    if (state.update.phase !== 'downloaded') {
+      pushToast('info', '请先下载安装包');
+      return;
+    }
+    Promise.resolve(updates.install()).then(function (res) {
+      if (res && res.ok) pushToast('success', '正在启动安装程序…');
+      else if (!res || !res.canceled) pushToast('error', (res && res.error) || '安装更新失败');
+    }).catch(function (err) {
+      pushToast('error', (err && err.message) || '安装更新失败');
+    });
+  }
+
+  function openUpdateRelease() {
+    var updates = updatesApi();
+    var result = state.update.result;
+    var url = (result && result.releaseUrl) || '';
+    if (!updates || typeof updates.openRelease !== 'function' || !url) {
+      pushToast('warning', '暂时没有发布页地址');
+      return;
+    }
+    Promise.resolve(updates.openRelease(url)).then(function (res) {
+      if (res && res.ok === false) pushToast('error', res.error || '无法打开发布页');
+    }).catch(function () {
+      pushToast('error', '无法打开发布页');
+    });
+  }
+
+  function toggleSkipVersion() {
+    var updates = updatesApi();
+    var result = state.update.result;
+    if (!updates || typeof updates.skip !== 'function' || !result || !result.latestVersion) return;
+    var nextSkipped = !result.skipped;
+    Promise.resolve(updates.skip(nextSkipped ? result.latestVersion : '')).then(function () {
+      result.skipped = nextSkipped;
+      pushToast('info', nextSkipped ? '已跳过 v' + result.latestVersion : '已取消跳过');
+      renderUpdate();
+    }).catch(function () {
+      pushToast('error', '保存跳过版本失败');
+    });
+  }
+
+  function handleUpdateProgress(payload) {
+    var percent = payload && typeof payload.percent === 'number' ? payload.percent : 0;
+    state.update.percent = Math.max(0, Math.min(100, Math.round(percent)));
+    if (state.update.phase === 'downloading') renderUpdate();
+  }
+
+  function handleUpdateAvailable(payload) {
+    if (!payload || !payload.latestVersion) return;
+    state.update.currentVersion = payload.currentVersion || state.update.currentVersion;
+    state.update.result = {
+      ok: true,
+      currentVersion: payload.currentVersion || state.update.currentVersion,
+      latestVersion: payload.latestVersion,
+      hasUpdate: true,
+      notes: payload.notes || '',
+      releaseUrl: payload.releaseUrl || '',
+      error: ''
+    };
+    state.update.phase = 'available';
+    renderUpdate();
+    pushToast('info', '发现新版本 v' + payload.latestVersion + '，可在设置中更新');
+  }
+
+  /* =========================================================
      页面切换 / 窗口控制
      ========================================================= */
 
@@ -1824,8 +2150,10 @@
 
     if (page === 'library') loadRecordings(false);
     if (page === 'settings') {
+      ensureMicDevices();
       renderSettingsControls();
       renderAbout();
+      renderUpdate();
     }
     if (page === 'record') updateStartAvailability();
   }
@@ -1915,6 +2243,25 @@
     }
   }
 
+  // 更新事件订阅：进度 / 后台自动检查发现新版本
+  function bindUpdateEvents() {
+    var updates = updatesApi();
+    if (!updates) return;
+    var pairs = [
+      ['onProgress', handleUpdateProgress],
+      ['onAvailable', handleUpdateAvailable]
+    ];
+    pairs.forEach(function (pair) {
+      if (typeof updates[pair[0]] !== 'function') return;
+      try {
+        var off = updates[pair[0]](pair[1]);
+        if (typeof off === 'function') unsubscribes.push(off);
+      } catch (err) {
+        console.error('[NovaRec] 订阅 ' + pair[0] + ' 失败', err);
+      }
+    });
+  }
+
   function handleAction(action) {
     switch (action) {
       case 'refresh-sources': loadSources(true); break;
@@ -1951,6 +2298,7 @@
     if (switchEl) {
       var key = switchEl.getAttribute('data-setting');
       setSetting(key, !state.settings[key]);
+      if (key === 'microphone') ensureMicDevices();
       return;
     }
 
@@ -2023,7 +2371,21 @@
     document.addEventListener('click', onDocumentClick);
 
     /* 录制主按钮 */
-    if (dom.btnStart) dom.btnStart.addEventListener('click', startCapture);
+    if (dom.btnStart) {
+      dom.btnStart.addEventListener('click', startCapture);
+      // 悬停/键盘聚焦时预热隐藏采集窗（建窗 + 加载采集页约 150~200ms），只建窗不取流；
+      // 失败静默，下次悬停可重试。
+      var prewarmed = false;
+      var prewarm = function () {
+        if (prewarmed || typeof api.prewarmCapture !== 'function') return;
+        prewarmed = true;
+        Promise.resolve(api.prewarmCapture()).then(function (res) {
+          if (!res || !res.ok) prewarmed = false;
+        }).catch(function () { prewarmed = false; });
+      };
+      dom.btnStart.addEventListener('mouseenter', prewarm);
+      dom.btnStart.addEventListener('focus', prewarm);
+    }
     if (dom.btnPause) dom.btnPause.addEventListener('click', togglePauseCapture);
     if (dom.btnStop) dom.btnStop.addEventListener('click', stopCapture);
 
@@ -2034,6 +2396,12 @@
     [dom.btnChangeDir, dom.btnSettingsChangeDir].forEach(function (btn) {
       if (btn) btn.addEventListener('click', chooseOutputDir);
     });
+
+    /* 版本更新 */
+    if (dom.btnUpdateCheck) dom.btnUpdateCheck.addEventListener('click', checkUpdates);
+    if (dom.btnUpdateDownload) dom.btnUpdateDownload.addEventListener('click', downloadUpdate);
+    if (dom.btnUpdateRelease) dom.btnUpdateRelease.addEventListener('click', openUpdateRelease);
+    if (dom.btnUpdateSkip) dom.btnUpdateSkip.addEventListener('click', toggleSkipVersion);
 
     /* 素材库 */
     if (dom.btnLibRefresh) dom.btnLibRefresh.addEventListener('click', function () { loadRecordings(true); });
@@ -2123,10 +2491,13 @@
     });
 
     loadAppInfo();
+    loadUpdateVersion();
     loadDisplayInfo();
-    loadSources(false);
+    // 首屏先要不带缩略图的轻量来源列表（几 ms），缩略图等首帧空闲后再补；
+    // 麦克风设备列表也推迟到用户进设置页/开开关时再枚举。
+    loadSources(false, true);
+    scheduleSourcesThumbnails();
     loadRecordings(false);
-    refreshMicDevices();
     refreshRegionState();
     syncRecordingState();
 
@@ -2144,6 +2515,7 @@
       if (!payload) return;
       pushToast(payload.type || 'info', payload.message || '');
     });
+    bindUpdateEvents();
 
     renderPage('record');
     state.initialized = true;

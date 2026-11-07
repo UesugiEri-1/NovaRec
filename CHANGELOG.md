@@ -2,6 +2,53 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-11-07
+
+体积与性能专项版本，功能不减。
+
+### 新增
+
+- 自动更新：设置页「版本更新」卡片，支持检查 / 下载 / 立即安装 / 跳过此版本；
+  检查顺序为 GitHub Releases API 直连 → gh-proxy.com 镜像 → 仓库 version.json（raw / gh-proxy / jsDelivr）；
+  每个渠道 8 秒超时，启动 10 秒后静默检查、24 小时节流，状态记录在 userData/updates/state.json
+- 两段式起录：倒计时期间并行建立采集流/画布，倒计时结束到真正开录从 256–284 ms 降到 5–16 ms
+- 性能基准脚本 scripts/perfbench.mjs、启动耗时脚本 scripts/measure-startup.mjs、
+  打包产物端到端验证脚本 scripts/verify-packaged-record.mjs
+
+### 体积优化
+
+- 移除内置 ffmpeg.exe（-61.5 MB），MP4/WebM 收尾改为纯 JS 重封装（src/main/mediafix.js + mp4remux.js + webmfix.js）
+- 语言包只保留 zh-CN / en-US（删 53 个，-47.7 MB）
+- 删除 dxcompiler.dll（WebGPU 着色器编译器，-24.6 MB；已做三模式录制回归验证）
+- NSIS 安装包 LZMA 最大压缩；新增单文件便携 exe（electron-builder portable，7z 自解压）
+- 打包排除未使用的图标母版 assets/icon-1024/512/128.png（-1.2 MB；运行期只用 icon.png / icon.ico / tray*.png）
+- 结果：便携目录 421 MB → 285 MB（299,022,765 B，19 个文件），便携 zip 173 MB → 129.7 MB（135,971,874 B），
+  安装包 122 MB → 97.0 MB（97,039,803 B），单文件便携 96.7 MB（96,685,191 B）
+
+### 性能优化
+
+- 收尾（封装/索引/封面）从 ffmpeg 多次子进程（0.5–3 s）改为纯 JS（10–60 ms，整体 37–104 ms），画质无损
+- 隐藏采集窗挂载 video 元素时不再额外解码（实测无收益，已回滚，保留稳定帧率路径）
+- 崩溃恢复：采集渲染进程崩溃后清理死窗口，避免下次录制 30 秒超时；倒计时期间预热采集窗
+- 启动优化：窗口不再等 ready-to-show，先用同色底立即显示再 180 ms 淡入（窗口可见从约 1.2 s 提前到约 0.3–0.4 s）；
+  IPC 提前注册、托盘/录制器/更新器移到首帧后装配；采集源列表首屏只取 id/name、首帧空闲再补缩略图；
+  麦克风设备列表改为进设置页/开麦克风时再枚举；关闭 10 个无关 Chromium 特性
+- 采集窗悬停预热：鼠标移到「开始录制」时提前建隐藏采集窗，冷启动首条录制 startMs 980 ms → 412 ms
+- 区域模式改 canvas.captureStream(0) + 每帧 requestFrame（兼容旧 API 自动回退）
+- 实测（Ryzen 3 3300U / Vega 6）：全屏 MP4 1080p30 28.8 fps、单核 CPU 28%、主线程 p95 延迟 ≤2.6 ms；
+  窗口 1080p60 59.1 fps、区域 800×450@60 53.8 fps；启动冷 apiReady 0.96–1.29 s
+
+### 移除
+
+- 打包产物不再包含 ffmpeg.exe 与任何生产依赖（asar 内只有本项目代码与图标）
+
+### 已知问题
+
+- 全屏 1080p60 在低端机受像素吞吐限制（本机约 36 fps；窗口/小区域 60fps 可用）；WebM/VP9 在低端机 CPU 占用明显高于 MP4
+- WebM + 性能模式（720p VP8）在本机约 20–25 fps，低于 MP4 同档 28.9 fps；三组 A/B（VP8 720p / VP9 720p / 只压码率不压分辨率）均约 25 fps，判定为 Chromium 内部行为，默认仍推荐 MP4
+- 单文件便携 exe 每次启动会自解压到临时目录（启动慢 2–5 秒）；日常使用建议 zip 版或安装包
+- 自动更新下载完整安装包，无增量更新；构建产物未做商业代码签名
+
 ## [1.0.0] - 2026-11-01
 
 首个开源版本。

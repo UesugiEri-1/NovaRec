@@ -64,7 +64,7 @@ function resolve(settings) {
   }
   // 流畅优先：720p 上限 / 30fps 上限 / 画质最高 standard / 码率封顶约 4.5Mbps /
   // 分片 2s（写盘与 IPC 次数减半）/ WebM 时优先 VP8（软件编码比 VP9 轻很多）
-  return Object.assign(base, {
+  const profile = Object.assign(base, {
     maxHeight: 720,
     maxWidth: 1280,
     fpsCap: 30,
@@ -76,6 +76,7 @@ function resolve(settings) {
     preferVp8: true,
     label: "720p · 30fps · 约 4.5 Mbps"
   });
+  return profile;
 }
 
 function capFps(profile, fps) {

@@ -7,6 +7,7 @@ const EventEmitter = require("events");
 const sourcesApi = require("./sources");
 const winbounds = require("./winbounds");
 const ffmpeg = require("./ffmpeg");
+const mediafix = require("./mediafix");
 const perfMod = require("./perf");
 
 function pad2(n) { return n < 10 ? "0" + n : String(n); }
@@ -50,6 +51,7 @@ class Recorder extends EventEmitter {
     this._readyWaiters = [];
     this._startWaiter = null;
     this._stopWaiter = null;
+    this._prepareWaiter = null;
     this._ticker = null;
     this._baseElapsed = 0;
     this._runStart = 0;
@@ -65,6 +67,7 @@ class Recorder extends EventEmitter {
     this.tempDir = path.join(this.userDataPath, "temp");
     this._channels = {
       "capture:ready": true,
+      "capture:prepared": true,
       "capture:started": true,
       "capture:stopped": true,
       "capture:error": true,
@@ -89,6 +92,10 @@ class Recorder extends EventEmitter {
       this.captureReady = true;
       this._readyWaiters.slice().forEach(function (w) { try { w.resolve(); } catch (e) {} });
       this._readyWaiters = [];
+      return;
+    }
+    if (channel === "capture:prepared") {
+      if (this._prepareWaiter) { const w = this._prepareWaiter; this._prepareWaiter = null; w({ type: "prepared", info: payload }); }
       return;
     }
     if (channel === "capture:log") {
@@ -134,10 +141,24 @@ class Recorder extends EventEmitter {
     }
   }
 
+  // 预热点：鼠标移到「开始录制」上时提前建好隐藏采集窗并加载 capture.html。
+  // 建窗 + 页面加载约 150~200ms，提前做掉后倒计时为 0 或很短时也能明显更快出画。
+  // 只建窗不取流：不占桌面/音频设备，空闲 25 秒后仍会自动销毁。
+  async prewarm() {
+    if (this.phase !== "idle") return { ok: false, busy: true };
+    try {
+      await this.ensureCaptureWindow();
+      this._scheduleCaptureIdleClose();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || "预热失败" };
+    }
+  }
+
   async ensureCaptureWindow() {
     const self = this;
     this._clearCaptureIdleTimer();
-    if (this.captureWin && !this.captureWin.isDestroyed()) {
+    if (this.captureWin && !this.captureWin.isDestroyed() && !this.captureWin.webContents.isCrashed()) {
       if (this.captureReady) return this.captureWin;
       await this._waitReady(15000);
       return this.captureWin;
@@ -162,6 +183,14 @@ class Recorder extends EventEmitter {
     this.captureWin = win;
     win.webContents.on("render-process-gone", function (ev, details) {
       console.error("[recorder] capture renderer gone", details && details.reason);
+      // 渲染进程死了但 BrowserWindow 对象还活着：如果继续复用它，下一次录制会把 IPC 发进
+      // 已销毁的渲染帧（"Render frame was disposed"），然后一直等不到 capture:started 直到超时。
+      // 这里把窗口引用清空并销毁，下次录制会重新建一个干净的隐藏采集窗。
+      self.captureReady = false;
+      self._readyWaiters.forEach(function (w) { try { w.reject(new Error("采集进程异常退出")); } catch (e) {} });
+      self._readyWaiters = [];
+      if (self.captureWin === win) self.captureWin = null;
+      try { if (!win.isDestroyed()) win.destroy(); } catch (e) {}
       const err = { type: "error", message: "采集进程异常退出", code: "renderer_gone" };
       if (self._startWaiter) { const w = self._startWaiter; self._startWaiter = null; w(err); }
       if (self._stopWaiter) { const w = self._stopWaiter; self._stopWaiter = null; w(err); }
@@ -231,6 +260,25 @@ class Recorder extends EventEmitter {
         resolve({ type: "timeout", message: "启动录制超时" });
       }, timeoutMs || 30000);
       self._startWaiter = function (msg) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(msg);
+      };
+    });
+  }
+
+  _waitPrepared(timeoutMs) {
+    const self = this;
+    return new Promise(function (resolve) {
+      let done = false;
+      const timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        self._prepareWaiter = null;
+        resolve({ type: "timeout", message: "准备采集超时" });
+      }, timeoutMs || 20000);
+      self._prepareWaiter = function (msg) {
         if (done) return;
         done = true;
         clearTimeout(timer);
@@ -310,13 +358,10 @@ class Recorder extends EventEmitter {
     return { sourceId: screen.id, sourceName: screen.name, display: display, region: null, screenId: screen.id };
   }
 
-  async _attemptStart(cfg, target, modeOverride) {
-    await this.ensureCaptureWindow();
-    const sessionId = "rec_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
-    this.sessionId = sessionId;
+  _capturePayload(cfg, target, modeOverride, sessionId) {
     const outBasePath = path.join(this.tempDir, sessionId);
     try { fs.mkdirSync(this.tempDir, { recursive: true }); } catch (e) {}
-    const payload = {
+    return {
       sessionId: sessionId,
       mode: modeOverride || cfg.mode,
       sourceId: target.sourceId,
@@ -332,6 +377,24 @@ class Recorder extends EventEmitter {
       perf: perfMod.toCaptureOptions(this._perf || perfMod.resolve({})),
       outBasePath: outBasePath
     };
+  }
+
+  // 倒计时期间预取采集流（两段式启动的第一段），start 时只差一个 MediaRecorder。
+  async _prepareCapture(cfg, target, sessionId) {
+    await this.ensureCaptureWindow();
+    const payload = this._capturePayload(cfg, target, null, sessionId);
+    const waiter = this._waitPrepared(20000);
+    if (!this._sendToCapture("capture:prepare", payload)) return { type: "error", message: "采集窗口不可用" };
+    const msg = await waiter;
+    console.log("[recorder] prepare " + (msg.type === "prepared" ? "ok " + (msg.info.width || 0) + "x" + (msg.info.height || 0) + " mime=" + (msg.info.mime || "") : msg.type + " " + (msg.message || "")));
+    return msg;
+  }
+
+  async _attemptStart(cfg, target, modeOverride) {
+    await this.ensureCaptureWindow();
+    const sessionId = this.sessionId || ("rec_" + Date.now() + "_" + Math.floor(Math.random() * 10000));
+    this.sessionId = sessionId;
+    const payload = this._capturePayload(cfg, target, modeOverride, sessionId);
     console.log("[recorder] start capture " + JSON.stringify({ mode: payload.mode, sourceId: payload.sourceId, format: payload.format, region: payload.region, sys: payload.systemAudio, mic: payload.microphone }));
     const waiter = this._waitStart(30000);
     if (!this._sendToCapture("capture:start", payload)) return { type: "error", message: "采集窗口不可用" };
@@ -378,14 +441,34 @@ class Recorder extends EventEmitter {
     this.fallbackUsed = false;
     this._lastError = null;
     this._lastProgress = null;
-    let target = null;
-    try {
-      target = await this._resolveTarget(cfg);
-    } catch (e) {
-      return { ok: false, error: e.message || "采集源不可用" };
-    }
-    this.target = target;
-    this.info = { mode: cfg.mode, sourceName: target.sourceName, startedAt: 0, width: 0, height: 0, hasAudio: false };
+    // 起录准备并行化（两段式启动）：
+    //   a. 枚举采集源（desktopCapturer ~0.1-0.4s）与预热隐藏采集窗（建窗+加载 ~0.3-0.6s）并行；
+    //   b. 有倒计时时，采集窗就绪后立刻在最前面预取采集流（capture:prepare），
+    //      倒计时结束只差一个 MediaRecorder，起录延迟从 ~350ms 降到 ~50ms。
+    const self = this;
+    this.sessionId = "rec_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
+    const sessionId = this.sessionId;
+    const prep = { target: null, error: null, prepared: false };
+    const winReady = this.ensureCaptureWindow().catch(function () { return null; });
+    const targetReady = this._resolveTarget(cfg).then(function (t) { prep.target = t; }, function (e) { prep.error = (e && e.message) || "采集源不可用"; });
+    const prepReady = (async function () {
+      await targetReady;
+      if (prep.error || !prep.target) return;
+      // 没有倒计时就没有「免费」的准备窗口，直接走一次性启动，少一次 IPC 往返
+      if (cfg.countdown <= 0) return;
+      await winReady;
+      if (prep.error || !prep.target) return;
+      const msg = await self._prepareCapture(cfg, prep.target, sessionId);
+      if (msg.type === "prepared") { prep.prepared = true; return; }
+      // 窗口采集失败要留到 start 失败后走「按窗口位置裁剪屏幕」的降级路径
+      if (msg.type === "error" && msg.code === "window_capture_failed" && cfg.mode === "window") return;
+      prep.error = msg.message || "启动录制失败";
+    })();
+    this.info = {
+      mode: cfg.mode,
+      sourceName: cfg.mode === "region" ? "屏幕区域" : (cfg.mode === "window" ? "应用窗口" : "整个屏幕"),
+      startedAt: 0, width: 0, height: 0, hasAudio: false
+    };
     if (cfg.countdown > 0) {
       this._countdownAbort = false;
       this.phase = "countdown";
@@ -394,15 +477,33 @@ class Recorder extends EventEmitter {
           this.phase = "idle";
           this.countdownLeft = 0;
           this.info = null;
+          // 取消时可能正有一个 capture:prepare 在取流：abort 让它作废并释放已拿到的流
+          this._sendToCapture("capture:abort", {});
+          this._scheduleCaptureIdleClose();
           this.emitState();
           return { ok: false, cancelled: true };
         }
         this.countdownLeft = i;
         this.emitState();
         await sleep(1000);
+        // 准备阶段已经失败（例如选中的窗口被关掉）就别干等剩下的秒数
+        if (prep.error) break;
       }
       this.countdownLeft = 0;
     }
+    await prepReady;
+    if (prep.error || !prep.target) {
+      const msg = prep.error || "采集源不可用";
+      this.phase = "idle";
+      this._showMain();
+      this.info = null;
+      this.emitState();
+      this.emit("error", { message: msg });
+      return { ok: false, error: msg };
+    }
+    const target = prep.target;
+    this.target = target;
+    this.info = { mode: cfg.mode, sourceName: target.sourceName, startedAt: 0, width: 0, height: 0, hasAudio: false };
     this.phase = "starting";
     this.emitState();
     if (cfg.hideMainWindow) this._hideMain();
@@ -422,9 +523,11 @@ class Recorder extends EventEmitter {
     }
     if (startMsg.type !== "started") {
       this.phase = "idle";
+      this._sendToCapture("capture:abort", {});
       this._showMain();
       this.info = null;
       this._cleanupTemp();
+      this._scheduleCaptureIdleClose();
       this.emitState();
       const message = startMsg.message || (startMsg.type === "timeout" ? "启动录制超时，请重试" : "启动录制失败");
       this.emit("error", { message: message });
@@ -518,37 +621,48 @@ class Recorder extends EventEmitter {
       this._cleanupTemp();
       return null;
     }
-    let outPath = "";
-    let finalFormat = this.cfg.format === "webm" ? "webm" : "mp4";
-    let mode = "remux";
     try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) {}
-    if (this._ffmpegOk === null) { try { this._ffmpegOk = await ffmpeg.isAvailable(); } catch (e) { this._ffmpegOk = false; } }
-    if (!this._ffmpegOk) {
-      const recExt = path.extname(tempPath) || ".webm";
-      finalFormat = recExt.slice(1);
-      outPath = path.join(outDir, "NovaRec_" + fileStamp() + recExt);
-      try { fs.renameSync(tempPath, outPath); } catch (e) {
-        this._lastError = "保存文件失败：" + e.message;
-        this.emit("error", { message: this._lastError });
-        this._cleanupTemp();
-        return null;
-      }
-      mode = "copy";
+    // 容器以采集器实际写出的文件头为准（mime 可能因兼容性回退），扩展名必须与真实容器一致。
+    let finalFormat = mediafix.sniff(tempPath) || (path.extname(tempPath).toLowerCase() === ".mp4" ? "mp4" : "webm");
+    let outPath = path.join(outDir, "NovaRec_" + fileStamp() + "." + finalFormat);
+    let mode = "remux";
+    let fixRes = null;
+    try { fixRes = await mediafix.finalize({ tempPath: tempPath, outPath: outPath, kind: finalFormat }); } catch (e) { fixRes = { ok: false, error: e.message }; }
+    if (fixRes.ok) {
+      console.log("[recorder] remux " + finalFormat + " " + (fixRes.ms || 0) + "ms");
     } else {
-      outPath = path.join(outDir, "NovaRec_" + fileStamp() + "." + finalFormat);
-      const res = await ffmpeg.finalize({ tempPath: tempPath, format: finalFormat, outPath: outPath });
-      if (!res.ok) {
-        this._lastError = res.error || "视频处理失败";
-        this.emit("error", { message: this._lastError });
-        this._cleanupTemp();
-        return null;
+      // 纯 JS 重封装失败（极罕见的异常结构）才回落到 ffmpeg 转码/重封装；开发环境装了 ffmpeg 可用它兜底。
+      console.warn("[recorder] remux failed: " + (fixRes.error || "unknown"));
+      if (this._ffmpegOk === null) { try { this._ffmpegOk = await ffmpeg.isAvailable(); } catch (e) { this._ffmpegOk = false; } }
+      if (this._ffmpegOk) {
+        const res = await ffmpeg.finalize({ tempPath: tempPath, format: finalFormat, outPath: outPath });
+        if (res.ok) { mode = res.mode; fixRes = { ok: true }; }
       }
-      mode = res.mode;
+      if (!fixRes.ok) {
+        const recExt = (path.extname(tempPath) || ".webm").toLowerCase();
+        finalFormat = recExt.slice(1);
+        outPath = path.join(outDir, "NovaRec_" + fileStamp() + recExt);
+        try { fs.renameSync(tempPath, outPath); } catch (e) {
+          this._lastError = "保存文件失败：" + e.message;
+          this.emit("error", { message: this._lastError });
+          this._cleanupTemp();
+          return null;
+        }
+        mode = "copy";
+      }
     }
+    // 封面直接用采集窗口停止前抓的那一帧（避免为了一张图再起一次 ffmpeg 子进程）。
     let posterPath = null;
-    if (this._ffmpegOk) {
-      const pp = outPath.replace(/\.(mp4|webm)$/i, "") + ".jpg";
-      try { posterPath = await ffmpeg.makePoster(outPath, pp); } catch (e) { posterPath = null; }
+    const posterDataUrl = stopped.posterDataUrl || "";
+    const posterOut = outPath.replace(/\.(mp4|webm)$/i, "") + ".jpg";
+    if (posterDataUrl.indexOf("data:image/jpeg;base64,") === 0) {
+      try {
+        fs.writeFileSync(posterOut, Buffer.from(posterDataUrl.slice(posterDataUrl.indexOf(",") + 1), "base64"));
+        if (fs.statSync(posterOut).size > 200) posterPath = posterOut;
+      } catch (e) { posterPath = null; }
+    }
+    if (!posterPath && this._ffmpegOk) {
+      try { posterPath = await ffmpeg.makePoster(outPath, posterOut); } catch (e) { posterPath = null; }
     }
     let sizeBytes = 0;
     try { sizeBytes = fs.statSync(outPath).size; } catch (e) {}
@@ -668,7 +782,7 @@ class Recorder extends EventEmitter {
     this._captureIdleTimer = setTimeout(function () {
       self._captureIdleTimer = null;
       if (self.phase === "idle") self._cleanupCapture();
-    }, 180000);
+    }, 25000);
     if (this._captureIdleTimer.unref) this._captureIdleTimer.unref();
   }
 

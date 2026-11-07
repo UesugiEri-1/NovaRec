@@ -17,6 +17,8 @@ type Settings = {
   countdown: 0 | 3 | 5;       // 开始前倒计时秒数，默认 3
   hideMainWindow: boolean;    // 屏幕/区域录制时隐藏主窗口，默认 true
   showCursor: boolean;        // 预留，默认 true
+  autoCheckUpdates: boolean;  // 启动后自动检查更新，默认 true
+  skippedVersion: string;     // 用户跳过的版本号，如 '1.2.0'；空串表示未跳过
 };
 
 type CaptureSource = {
@@ -115,6 +117,35 @@ type StartRequest = {
 - `window.isMaximized(): Promise<boolean>`
 - `window.onMaximizedChange(cb: (maximized: boolean) => void): () => void`
 
+### 版本更新（`window.nova.updates` / `window.novarec.updates`）
+
+主进程检查顺序（每个渠道 8s 超时，失败自动降级）：GitHub Release API 直连 → gh-proxy 镜像 → 仓库 `version.json`（raw.githubusercontent.com → gh-proxy 镜像 → jsDelivr CDN）。只有远端版本高于当前版本（`app.getVersion()`）才提示更新。
+
+```ts
+type UpdateInfo = {
+  ok: boolean;
+  currentVersion: string;     // 当前版本，如 '1.1.0'
+  latestVersion: string;      // 远端最新版本；检查失败时为空串
+  hasUpdate: boolean;
+  notes: string;              // 更新说明（纯文本，来自 Release body 或 version.json notes）
+  releaseUrl: string;         // 发布页地址，可能为空
+  error: string;              // 失败时的中文提示；成功为空串
+  channel?: string;           // 命中的渠道 id：github-api | gh-proxy-api | version-json | gh-proxy-json | jsdelivr-json
+  skipped?: boolean;          // 用户已跳过该版本（settings.skippedVersion）
+};
+
+type UpdateProgress = { percent: number }; // 0-100
+```
+
+- `check(): Promise<UpdateInfo>` — 检查更新；不会 reject，失败时 `ok:false` 且 `error` 为中文提示
+- `download(): Promise<{ ok: true; filePath: string; size: number } | { ok: false; error: string }>` — 下载安装包到 `userData/updates/`；需先 `check()` 且 `hasUpdate=true`；下载中通过 `onProgress` 推送进度
+- `install(): Promise<{ ok: boolean; canceled?: boolean; error?: string }>` — 弹出原生确认框，确认后 `shell.openPath(安装包)` 并退出应用（安装包覆盖安装）
+- `skip(version?: string): Promise<{ ok: true; skippedVersion: string }>` — 记录/清除 `settings.skippedVersion`，跳过的版本不再自动提示
+- `openRelease(url?: string): Promise<{ ok: boolean; error?: string }>` — 用系统浏览器打开发布页（仅允许 https 白名单域名）
+- `onProgress(cb: (p: UpdateProgress) => void): () => void` — 下载进度事件
+- `onAvailable(cb: (u: { currentVersion: string; latestVersion: string; notes: string; releaseUrl: string }) => void): () => void` — 启动后自动检查发现新版本时推送（静默检查失败不推送）
+- `getCurrentVersion(): Promise<string>` — 当前版本（与设置页「关于」一致）
+
 ## 行为约定
 1. 录制流程：`startRecording` 成功后主进程先倒计时（countdown），再隐藏主窗口（屏幕/区域模式且 hideMainWindow=true），随后开始采集；`onRecordingState` 会推 countdown → recording → processing → idle。
 2. 录制中主窗口可能被隐藏；素材/状态以 tray 与快捷键控制（F9 停止 / F10 暂停）。前端无需额外实现。
@@ -122,3 +153,6 @@ type StartRequest = {
 4. 录制失败（如系统声音不可用）通过 `onToast` 警告，录制可继续（无声音）。
 5. 前缀 `window.novarec` 可能不存在（浏览器预览）；前端必须提供 mock 实现以便无 Electron 环境预览 UI。
 6. 不要引入任何外部 CDN / 网络字体；全部离线可用。图标使用内联 SVG。
+7. 自动更新：启动 10s 后静默检查一次（受 `settings.autoCheckUpdates` 控制，默认开启），24 小时内不重复；检查失败只写 `userData/dev.log`，不打扰用户。手动检查与自动检查共用同一模块 `src/main/updater.js`。
+8. 下载安全：仅允许 https 且 host 在白名单（github.com、objects.githubusercontent.com、gh-proxy.com、cdn.jsdelivr.net 等）内的地址；文件扩展名必须 `.exe`，并校验 Content-Length 与响应内容类型；`github.com` 直连失败会自动改写为 `https://gh-proxy.com/https://github.com/...` 重试。
+9. `Settings` 新增 `autoCheckUpdates`（默认 true）与 `skippedVersion`（可选）；设置页「版本更新」区块读取/写入这两个字段，其余更新动作全部走更新专用 IPC。

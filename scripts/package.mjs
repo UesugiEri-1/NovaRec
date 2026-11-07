@@ -28,6 +28,51 @@ const TAR_EXE = (function () {
 })();
 
 function log(s) { console.log("[" + new Date().toISOString() + "] " + s); }
+
+// ---- 产物瘦身 ----
+// 只保留中文/英文语言包（Electron 默认带 55 个 locales，占 ~49MB；应用 UI 仅需 zh-CN/en-US）
+const LOCALES_KEEP = ["zh-CN.pak", "en-US.pak"];
+// 运行时可选组件裁剪（默认生效）：
+// - dxcompiler.dll（24.6MB）是 Chromium WebGPU/Dawn 的 DXIL 着色器编译器，NovaRec 不使用 WebGPU；
+//   已用 scripts/verify-packaged-record.mjs 在裁剪后的产物上跑通全屏/区域/窗口三模式录制+系统声音回归。
+// - 保留 vk_swiftshader.dll / vulkan-1.dll（6.1MB）：GPU 不可用/驱动异常机器上 Chromium 需要它们做软件光栅回退，
+//   删掉可能导致部分机器界面起不来，属于功能风险，不做裁剪。
+// - 保留 electron_wer.dll（0.4MB）：崩溃上报组件，收益可忽略。
+const RUNTIME_PRUNE = ["dxcompiler.dll"];
+// 额外可裁剪的顶层文件（实验/验证用，默认空）：例 NOVAREC_PRUNE_EXTRA="vk_swiftshader.dll"
+const PRUNE_EXTRA = (process.env.NOVAREC_PRUNE_EXTRA || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+function pruneAppDir(appDir) {
+  const removed = [];
+  let freed = 0;
+  const del = function (p) {
+    try {
+      const st = fs.statSync(p);
+      if (st.isFile()) { fs.rmSync(p, { force: true }); removed.push(path.relative(appDir, p)); freed += st.size; }
+    } catch (e) {}
+  };
+  // locales：白名单外全部删除
+  const localesDir = path.join(appDir, "locales");
+  const keptLocales = [];
+  try {
+    fs.readdirSync(localesDir, { withFileTypes: true }).forEach(function (ent) {
+      if (!ent.isFile()) return;
+      if (LOCALES_KEEP.indexOf(ent.name) >= 0) keptLocales.push(ent.name);
+      else del(path.join(localesDir, ent.name));
+    });
+  } catch (e) {}
+  // 运行时可选组件 + 实验性额外裁剪（按顶层文件名匹配，含子目录相对路径）
+  const runtimeRemoved = [];
+  RUNTIME_PRUNE.concat(PRUNE_EXTRA).forEach(function (name) {
+    const abs = path.join(appDir, name);
+    if (fs.existsSync(abs)) {
+      const before = removed.length;
+      del(abs);
+      if (removed.length > before) runtimeRemoved.push(name);
+    }
+  });
+  if (removed.length) log("PRUNE: removed " + removed.length + " files, freed " + (freed / 1048576).toFixed(2) + " MB; locales kept=" + JSON.stringify(keptLocales) + " runtime=" + JSON.stringify(runtimeRemoved));
+  return { localesKept: keptLocales, runtimeRemoved: runtimeRemoved, removedFiles: removed.length, removedBytes: freed, removedSample: removed.slice(0, 12) };
+}
 function dirSize(dir) {
   let total = 0, files = 0;
   const walk = function (d) {
@@ -84,6 +129,11 @@ async function main() {
     /[\\/]scripts([\\/]|$)/i,
     /[\\/]\.git([\\/]|$)/i,
     /[\\/]nul$/i,
+    // 多尺寸母版图标只给 scripts/make-icons-v2.mjs 生成用，运行期只读 assets/icon.png 与
+    // assets/icon.ico（main.js:195/241），打包时排除可省约 1.2MB。
+    /assets[\\/]icon-1024\.png$/i,
+    /assets[\\/]icon-512\.png$/i,
+    /assets[\\/]icon-128\.png$/i,
   ];
 
   const opts = {
@@ -95,7 +145,7 @@ async function main() {
     name: "NovaRec",
     appVersion: pkg.version || "1.0.0",
     icon: path.join(ROOT, "assets", "icon.ico"),
-    asar: { unpack: "**/node_modules/@ffmpeg-installer/**" },
+    asar: true,
     ignore: IGNORE,
     prune: true,
     electronVersion: electronVersion,
@@ -135,15 +185,13 @@ async function main() {
   }
 
   const appDir = path.join(DIST, "NovaRec-win32-x64");
+  const pruneInfo = pruneAppDir(appDir);
   const exe = path.join(appDir, "NovaRec.exe");
   const asar = path.join(appDir, "resources", "app.asar");
-  const unpackedRoot = path.join(appDir, "resources", "app.asar.unpacked");
-  const ffmpegExe = path.join(unpackedRoot, "node_modules", "@ffmpeg-installer", "win32-x64", "ffmpeg.exe");
 
   const statOf = function (p) { try { const st = fs.statSync(p); return { exists: true, bytes: st.size }; } catch (e) { return { exists: false, bytes: 0 }; } };
   const exeStat = statOf(exe);
   const asarStat = statOf(asar);
-  const ffStat = statOf(ffmpegExe);
   const distInfo = dirSize(appDir);
 
   // 校验 asar 内确实包含应用主进程/渲染层源码（避免 ignore 误伤）
@@ -154,15 +202,23 @@ async function main() {
   } catch (e) { asarError = (e && e.message) || String(e); }
   const asarHasMain = asarEntries.some(function (x) { return /[\\/]src[\\/]main[\\/]main\.js$/.test(x); });
   const asarHasRenderer = asarEntries.some(function (x) { return /[\\/]src[\\/]renderer[\\/]index\.html$/.test(x); });
+  // 关键：收尾不再依赖 ffmpeg.exe，必须确认纯 JS 重封装器随包分发。
+  const asarHasRemuxer = ["mp4remux.js", "webmfix.js", "mediafix.js"].every(function (f) {
+    return asarEntries.some(function (x) { return new RegExp("[\\\\/]src[\\\\/]main[\\\\/]" + f.replace(".", "\\.") + "$").test(x); });
+  });
 
   const checks = {
     exeExists: exeStat.exists,
     asarExists: asarStat.exists && asarStat.bytes > 100 * 1024,
     asarHasMain: asarHasMain,
     asarHasRenderer: asarHasRenderer,
-    unpackedDirExists: fs.existsSync(unpackedRoot),
-    ffmpegExists: ffStat.exists,
-    ffmpegSizeOk: ffStat.bytes > 10 * 1024 * 1024,
+    asarHasRemuxer: asarHasRemuxer,
+    noUnpackedFfmpeg: !fs.existsSync(path.join(appDir, "resources", "app.asar.unpacked")),
+    noFfmpegDep: !fs.existsSync(path.join(appDir, "resources", "app.asar.unpacked", "node_modules")),
+    // 体积裁剪：WebGPU 着色器编译器不随包分发（应用不使用 WebGPU）
+    noDxcompiler: !fs.existsSync(path.join(appDir, "dxcompiler.dll")),
+    // 健壮性：软件光栅回退组件必须留着（GPU 异常/远程桌面场景）
+    hasSwiftShader: fs.existsSync(path.join(appDir, "vk_swiftshader.dll")) && fs.existsSync(path.join(appDir, "vulkan-1.dll")),
   };
   const ok = Object.keys(checks).every(function (k) { return checks[k] === true; });
 
@@ -199,10 +255,10 @@ async function main() {
         entries: items.length,
         hasExe: items.some(function (x) { return /NovaRec-win32-x64\/NovaRec\.exe$/.test(x); }),
         hasAsar: items.some(function (x) { return /NovaRec-win32-x64\/resources\/app\.asar$/.test(x); }),
-        hasFfmpeg: items.some(function (x) { return /app\.asar\.unpacked\/node_modules\/@ffmpeg-installer\/win32-x64\/ffmpeg\.exe$/.test(x); }),
+        noUnpackedDir: !items.some(function (x) { return /app\.asar\.unpacked\//.test(x); }),
         hasDoc: items.some(function (x) { return /^NovaRec-win32-x64\/[^/]+\.md$/.test(x); }),
       };
-      entryCheck.ok = !!(entryCheck.hasExe && entryCheck.hasAsar && entryCheck.hasFfmpeg && entryCheck.hasDoc);
+      entryCheck.ok = !!(entryCheck.hasExe && entryCheck.hasAsar && entryCheck.noUnpackedDir && entryCheck.hasDoc);
     }
     zip = { path: zipPath, bytes: st ? st.size : 0, seconds: Math.round((Date.now() - t0) / 100) / 10, tarStatus: res.status, tarOk: res.status === 0, stderr: (res.stderr || "").slice(-400), entryCheck: entryCheck };
     log("ZIP " + JSON.stringify(zip));
@@ -221,19 +277,20 @@ async function main() {
     appDir: appDir,
     exe: { path: exe, bytes: exeStat.bytes },
     asar: { path: asar, bytes: asarStat.bytes },
-    ffmpeg: { path: ffmpegExe, bytes: ffStat.bytes },
+    remuxer: "js (mp4remux/webmfix/mediafix, no ffmpeg binary)",
     dist: distInfo,
     electronVersion: electronVersion,
     electronZipDir: zipDir,
     appVersion: opts.appVersion,
     asarEntries: asarEntries.length,
     asarError: asarError,
+    prune: pruneInfo,
     checks: checks,
     docCopied: docCopied,
     zip: zip,
   };
   fs.writeFileSync(REPORT, JSON.stringify(report, null, 2));
-  log("PACKAGE REPORT " + JSON.stringify({ ok: finalOk, packagingOk: ok, zipOk: zipOk, exeBytes: exeStat.bytes, asarBytes: asarStat.bytes, ffmpegBytes: ffStat.bytes, distBytes: distInfo.bytes, distFiles: distInfo.files, checks: checks }));
+  log("PACKAGE REPORT " + JSON.stringify({ ok: finalOk, packagingOk: ok, zipOk: zipOk, exeBytes: exeStat.bytes, asarBytes: asarStat.bytes, distBytes: distInfo.bytes, distFiles: distInfo.files, pruneFreedMB: Math.round(pruneInfo.removedBytes / 104857.6) / 10, checks: checks }));
   log("report -> " + REPORT);
   return finalOk ? 0 : 2;
 }

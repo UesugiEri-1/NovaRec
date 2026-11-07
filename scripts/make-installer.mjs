@@ -44,6 +44,7 @@ process.env.ELECTRON_BUILDER_BINARIES_MIRROR = process.env.ELECTRON_BUILDER_BINA
 
 const config = {
   appId: "com.novarec.screenrecorder",
+  compression: "maximum", // NSIS 使用 LZMA 最大压缩（安装包体积显著下降）
   productName: "NovaRec",
   copyright: "Copyright \u00a9 2026 NovaRec",
   directories: { output: OUT_DIR, buildResources: path.join(ROOT, "assets") },

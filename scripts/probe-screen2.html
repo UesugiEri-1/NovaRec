@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#111}</style></head>
+<body><video id="v" muted autoplay></video>
+<script>
+window.__run = async function (sourceId, seconds) {
+  var v = document.getElementById('v');
+  var s;
+  try {
+    s = await navigator.mediaDevices.getUserMedia({ video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId, maxWidth: 4096, maxHeight: 2304, maxFrameRate: 30 } }, audio: false });
+  } catch (e) { return { ok: false, error: String((e && e.message) || e), name: String((e && e.name) || '') }; }
+  v.srcObject = s;
+  await new Promise(function (r) { v.onloadedmetadata = r; });
+  try { await v.play(); } catch (e) {}
+  var n = 0, stopped = false;
+  var firstShot = null;
+  function shoot() {
+    if (firstShot) return;
+    try {
+      var cv = document.createElement('canvas');
+      cv.width = v.videoWidth || 1280; cv.height = v.videoHeight || 720;
+      cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+      firstShot = cv.toDataURL('image/png');
+    } catch (e) { firstShot = 'ERR:' + e.message; }
+  }
+  function cb() { n++; shoot(); if (!stopped) v.requestVideoFrameCallback(cb); else s.getTracks().forEach(function (t) { t.stop(); }); }
+  v.requestVideoFrameCallback(cb);
+  await new Promise(function (r) { setTimeout(r, seconds * 1000); });
+  stopped = true;
+  await new Promise(function (r) { setTimeout(r, 150); });
+  return { ok: true, frames: n, w: v.videoWidth, h: v.videoHeight, shot: firstShot };
+};
+</script></body></html>

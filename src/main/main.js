@@ -23,7 +23,25 @@ if (WANT_NO_SANDBOX) {
 }
 // 老设备优化：隐藏窗口/最小化时不要把渲染节流到 1fps，也不要让 Chromium 因窗口遮挡关闭渲染
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
-app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+app.commandLine.appendSwitch("disable-features", [
+  "CalculateNativeWinOcclusion",   // 遮挡时不节流/不关渲染（录屏采集需要持续出帧）
+  "Translate",                     // 不用内置翻译
+  "MediaRouter",                   // 不用投屏路由
+  "DialMediaRouteProvider",
+  "GlobalMediaControls",           // 不用全局媒体控制条
+  "HardwareMediaKeyHandling",
+  "AutofillServerCommunication",   // 不联网取表单/密码类数据
+  "OptimizationHints",             // 不下载优化提示模型
+  "InterestFeedContentSuggestions",
+  "WebRtcHideLocalIpsWithMdns"     // 桌面采集走 chromeMediaSource，不需要 mDNS 隐藏
+].join(","));
+// 启动期性能：Chromium 自带的一堆后台网络任务（组件更新、域可靠性上报、同步、pings）在
+// 离线/受限网络（GitHub 不通、代理超时）时会拖慢首屏，录屏软件也用不到这些能力，直接关掉。
+app.commandLine.appendSwitch("disable-background-networking");
+app.commandLine.appendSwitch("disable-component-update");
+app.commandLine.appendSwitch("disable-domain-reliability");
+app.commandLine.appendSwitch("disable-sync");
+app.commandLine.appendSwitch("no-pings");
 app.setName("NovaRec");
 app.setAppUserModelId("com.novarec.app");
 
@@ -67,6 +85,14 @@ const DEV_LOG = path.join(USER_DATA_DIR, "dev.log");
 function devLog(msg) {
   try { fs.appendFileSync(DEV_LOG, new Date().toISOString() + " " + msg + "\n"); } catch (e) {}
 }
+// 启动性能打点：BOOT_CREATION 是进程创建时刻，所有 mark 记「距进程创建多少 ms」
+const BOOT_CREATION = (function () { try { return process.getCreationTime() || Date.now(); } catch (e) { return Date.now(); } })();
+function perfMark(name) {
+  const ms = Date.now() - BOOT_CREATION;
+  devLog("perf " + name + "=" + ms + "ms");
+  if (process.env.NOVAREC_PERF_LOG === "1") { try { console.log("[perf] " + name + "=" + ms + "ms"); } catch (e) {} }
+  return ms;
+}
 process.on("uncaughtException", function (err) { devLog("uncaughtException: " + (err && err.stack || err)); });
 process.on("unhandledRejection", function (err) { devLog("unhandledRejection: " + (err && err.stack || err)); });
 devLog("boot userData=" + USER_DATA_DIR);
@@ -107,7 +133,9 @@ function bootstrap() {
     countdown: 3,
     hideMainWindow: true,
     showCursor: true,
-    performanceMode: "auto"
+    performanceMode: "auto",
+    autoCheckUpdates: true,
+    skippedVersion: ""
   };
 
   function log() {
@@ -136,6 +164,8 @@ function bootstrap() {
     if (typeof s.micDeviceId === "string" && s.micDeviceId) next.micDeviceId = s.micDeviceId;
     if (s.performanceMode === "auto" || s.performanceMode === "on" || s.performanceMode === "off") next.performanceMode = s.performanceMode;
     if (s.countdown !== undefined) { const n = Math.round(Number(s.countdown)); if (isFinite(n)) next.countdown = Math.max(0, Math.min(10, n)); }
+    if (s.autoCheckUpdates !== undefined) next.autoCheckUpdates = !!s.autoCheckUpdates;
+    if (typeof s.skippedVersion === "string") next.skippedVersion = s.skippedVersion.trim();
     return next;
   }
 
@@ -196,7 +226,24 @@ function bootstrap() {
     state.mainWindow = win;
     win.setMenuBarVisibility(false);
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
-    win.once("ready-to-show", function () { win.show(); });
+    win.webContents.once("did-finish-load", function () { perfMark("renderer_loaded"); });
+    // v1.1.0 启动优化：不再等 ready-to-show（Chromium 建窗/首帧合成约 740ms）。
+    // 窗口底色与首屏一致（#0e121a），先用底色立即显示再 180ms 淡入，感知启动提前约 600~700ms。
+    try {
+      win.setOpacity(0);
+      win.show();
+      perfMark("window_shown");
+      let op = 0;
+      const fade = setInterval(function () {
+        if (!win || win.isDestroyed()) { clearInterval(fade); return; }
+        op += 0.2;
+        if (op >= 1) { clearInterval(fade); try { win.setOpacity(1); } catch (e) {} return; }
+        try { win.setOpacity(op); } catch (e) { clearInterval(fade); }
+      }, 30);
+    } catch (e) {
+      try { win.show(); } catch (e2) {}
+    }
+    win.once("ready-to-show", function () { perfMark("window_ready_to_show"); });
     win.on("maximize", function () { broadcast("win:maximized", true); });
     win.on("unmaximize", function () { broadcast("win:maximized", false); });
     win.on("close", function (event) {
@@ -492,6 +539,14 @@ function bootstrap() {
     });
   }
 
+  // ffmpeg 是否可用：打包版不再内置 ffmpeg（纯 JS remux），开发态兜底才有；探测结果进程内缓存，
+  // 避免渲染层每次请求 app:info 都 spawn 一个探测进程。
+  let ffmpegAvailCache = null;
+  function ffmpegAvail() {
+    if (ffmpegAvailCache !== null) return Promise.resolve(ffmpegAvailCache);
+    return ffmpeg.isAvailable().catch(function () { return false; }).then(function (v) { ffmpegAvailCache = !!v; return ffmpegAvailCache; });
+  }
+
   function registerIpc() {
     ipcMain.handle("settings:get", function () { return state.settings.get(); });
     ipcMain.handle("settings:set", function (event, patch) {
@@ -517,8 +572,7 @@ function bootstrap() {
     });
     ipcMain.handle("settings:openDir", function () { openOutputDir(); return true; });
     ipcMain.handle("app:info", async function () {
-      let hasFfmpeg = false;
-      try { hasFfmpeg = await ffmpeg.isAvailable(); } catch (e) { hasFfmpeg = false; }
+      const hasFfmpeg = await ffmpegAvail();
       return {
         name: "NovaRec",
         version: app.getVersion(),
@@ -538,19 +592,30 @@ function bootstrap() {
     });
     ipcMain.handle("audio:devices", function () { return listAudioDevices(); });
 
-    // 采集源枚举要调 desktopCapturer（数百 ms，含窗口图标）：短缓存挡住页面切来切去的重复枚举
-    let sourcesCache = null;
-    let sourcesCacheAt = 0;
+    // 采集源枚举要调 desktopCapturer：带缩略图/窗口图标时是数十到数百 ms（每个窗口都要
+    // 截一张图再同步 PNG 编码），不带图只要几 ms。两档分别缓存，挡住页面来回切换的重复枚举。
+    const sourcesCache = { full: null, fullAt: 0, fast: null, fastAt: 0 };
     ipcMain.handle("sources:list", async function (event, opts) {
-      const force = opts === true || (opts && opts.force === true);
+      const o = opts && typeof opts === "object" ? opts : { force: opts === true };
+      const fast = o.fast === true;
+      const force = o.force === true;
       const now = Date.now();
-      if (!force && sourcesCache && now - sourcesCacheAt < 800) return sourcesCache;
-      sourcesCache = await sourcesApi.listSources();
-      sourcesCacheAt = now;
-      return sourcesCache;
+      const cached = fast ? sourcesCache.fast : sourcesCache.full;
+      const cachedAt = fast ? sourcesCache.fastAt : sourcesCache.fullAt;
+      if (!force && cached && now - cachedAt < 800) return cached;
+      const list = await sourcesApi.listSources({ thumbnails: !fast, icons: !fast });
+      if (fast) { sourcesCache.fast = list; sourcesCache.fastAt = now; }
+      else { sourcesCache.full = list; sourcesCache.fullAt = now; }
+      return list;
     });
     ipcMain.handle("display:info", function () { return sourcesApi.getDisplayInfo(); });
     ipcMain.handle("region:select", async function () { return await selectRegion(); });
+
+    // 渲染层把鼠标移到开始按钮时预热隐藏采集窗（只建窗/加载页面，不取流）
+    ipcMain.handle("capture:prewarm", async function () {
+      if (!state.recorder || typeof state.recorder.prewarm !== "function") return { ok: false, pending: true };
+      return await state.recorder.prewarm();
+    });
 
     ipcMain.handle("recording:start", async function (event, req) {
       if (!state.recorder) return { ok: false, error: "录制模块未就绪" };
@@ -633,6 +698,7 @@ function bootstrap() {
   app.on("second-instance", function () { showMainWindow(); });
 
   app.whenReady().then(function () {
+    perfMark("when_ready");
     ensureDir(app.getPath("userData"));
     ensureDir(path.join(app.getPath("userData"), "temp"));
     state.settings = new storeMod.JsonFile(path.join(app.getPath("userData"), "settings.json"), defaults());
@@ -640,6 +706,7 @@ function bootstrap() {
     if (!state.settings.get().outputDir) { state.settings.data.outputDir = defaults().outputDir; state.settings.save(); }
     ensureDir(state.settings.get().outputDir);
     state.library = new storeMod.Library(path.join(app.getPath("userData"), "library.json"));
+    perfMark("stores_loaded");
 
     try {
       session.defaultSession.setPermissionRequestHandler(function (wc, permission, callback) {
@@ -651,11 +718,49 @@ function bootstrap() {
     try { session.defaultSession.setSpellCheckerEnabled(false); } catch (e) {}
 
     createMainWindow();
-    createRecorder();
-    createTray();
+    perfMark("window_created");
+    // IPC 必须最先就绪：渲染层一显示就会调 settings:get / sources:list 等。
     registerIpc();
-    syncShortcuts(null);
+    perfMark("ready");
     log("ready, userData=" + app.getPath("userData") + " output=" + state.settings.get().outputDir);
+
+    // 托盘（原生菜单构建）、录制器（媒体栈解析）、快捷键、更新器（913 行同步 require）只在
+    // 用户第一次交互时才需要，放到首帧之后的下一个 tick 装配：不参与「窗口可见」的关键路径，
+    // 省 20~60ms 首屏时间。
+    setImmediate(function () {
+      try {
+        createRecorder();
+        createTray();
+        syncShortcuts(null);
+      } catch (e) {
+        log("deferred init failed", e && e.message);
+      }
+      // 自动更新：主进程负责检查/下载/安装，渲染层只调 IPC；启动 10s 后静默检查一次（24 小时内不重复）
+      try {
+        state.updater = require("./updater").init({
+          app: app,
+          ipcMain: ipcMain,
+          shell: shell,
+          dialog: dialog,
+          userDataPath: app.getPath("userData"),
+          getSettings: function () { return state.settings.get(); },
+          saveSettings: function (patch) {
+            const next = Object.assign({}, state.settings.get(), patch || {});
+            state.settings.data = next;
+            state.settings.save();
+            broadcast("settings:changed", next);
+            return next;
+          },
+          getMainWindow: function () { return state.mainWindow; },
+          broadcast: broadcast,
+          log: devLog
+        });
+        devLog("updater initialized");
+      } catch (e) {
+        devLog("updater init failed: " + (e && e.stack || e));
+      }
+      perfMark("deferred_ready");
+    });
   });
 
   app.on("before-quit", function () {
