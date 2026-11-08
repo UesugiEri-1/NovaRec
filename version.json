@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "notes": "v1.1.0：体积优化（安装包 94 MB / 便携包 286 MB）、收尾改为纯 JS 毫秒级、两段式起录、新增自动更新。",
+  "notes": "v1.1.0：安装包 97.0 MB、便携 zip 129.7 MB、单文件便携 96.7 MB；收尾改纯 JS（37–104 ms）；两段式起录；新增自动更新（GitHub 直连 + 镜像）。",
   "url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.0/NovaRec-Setup-1.1.0-x64.exe",
   "assets": [
     {
