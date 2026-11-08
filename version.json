@@ -1,11 +1,19 @@
 {
-  "version": "1.1.0",
-  "notes": "v1.1.0：安装包 97.0 MB、便携 zip 129.7 MB、单文件便携 96.7 MB；收尾改纯 JS（37–104 ms）；两段式起录；新增自动更新（GitHub 直连 + 镜像）。",
-  "url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.0/NovaRec-Setup-1.1.0-x64.exe",
+  "version": "1.1.1",
+  "notes": "v1.1.1：修复部分 Windows 机器上双击无反应（Chromium 沙箱在启动前崩溃）——改为零依赖启动器启动；功能与体积不变（安装包约 97 MB、单文件便携版约 97 MB、zip 约 130 MB）。",
+  "url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.1/NovaRec-Setup-1.1.1-x64.exe",
   "assets": [
     {
-      "name": "NovaRec-Setup-1.1.0-x64.exe",
-      "browser_download_url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.0/NovaRec-Setup-1.1.0-x64.exe"
+      "name": "NovaRec-Setup-1.1.1-x64.exe",
+      "browser_download_url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.1/NovaRec-Setup-1.1.1-x64.exe"
+    },
+    {
+      "name": "NovaRec-Portable-1.1.1-x64.exe",
+      "browser_download_url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.1/NovaRec-Portable-1.1.1-x64.exe"
+    },
+    {
+      "name": "NovaRec-1.1.1-win32-x64.zip",
+      "browser_download_url": "https://github.com/UesugiEri-1/NovaRec/releases/download/v1.1.1/NovaRec-1.1.1-win32-x64.zip"
     }
   ]
 }

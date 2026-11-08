@@ -636,9 +636,12 @@ async function installDownloaded(options) {
     return { ok: false, canceled: false, error: "无法启动安装程序：" + errorMessage(err) };
   }
   log(opts.logger, "已启动安装程序，应用即将退出");
+  // 安装包已先启动（用户还要在安装向导里点几步），这里留足时间让本进程真正退出：
+  // 打包产物的 NovaRec.exe 是 C# 启动器，真正的 Electron 进程叫 NovaRecApp.exe ——
+  // 若安装程序开始拷贝文件时 NovaRecApp.exe 还活着，会因为文件占用失败。1.5s 足够完成收尾退出。
   setTimeout(function () {
     try { app.quit(); } catch (e) {}
-  }, 400);
+  }, 1500);
   return { ok: true, canceled: false, error: "" };
 }
 

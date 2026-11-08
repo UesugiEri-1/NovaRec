@@ -2,7 +2,7 @@
 
 > 全屏录制、截选区域、选择窗口，可同时录制系统声音与麦克风。无广告、无捆绑、无需注册。
 
-**Windows 10 / 11 · x64** ｜ **Electron 45 + Chromium 桌面采集 + 纯 JS 收尾（无 ffmpeg）** ｜ **MIT License** ｜ **v1.1.0**
+**Windows 10 / 11 · x64** ｜ **Electron 45 + Chromium 桌面采集 + 纯 JS 收尾（无 ffmpeg）** ｜ **MIT License** ｜ **v1.1.1**
 
 ![录制页](docs/screenshots/01-record.png)
 
@@ -29,7 +29,7 @@
 - **素材库**：缩略图预览、播放、定位文件、删除（进回收站），录制完成自动入库
 - **性能模式**：低配机器自动降到 720p · 30fps 并精简界面动画，录制期间阻止息屏
 - **自动更新**：GitHub Releases 直连 + 镜像降级 + 仓库 version.json 回退，检查到新版本后由用户确认下载安装
-- **轻量**：安装包 97 MB / 单文件便携 96.7 MB / 便携 zip 129.7 MB / 解压后 285 MB；无内置 ffmpeg，收尾由纯 JS 重封装器完成（毫秒级）
+- **轻量**：安装包 97.1 MB / 单文件便携 96.8 MB / 便携 zip 129.7 MB / 解压后 285 MB；无内置 ffmpeg，收尾由纯 JS 重封装器完成（毫秒级）
 - **中文界面**：浅色 + 单一绿色强调色（#17A24B），无边框自绘标题栏
 
 ## 截图
@@ -50,13 +50,19 @@
 
 发布版提供三种形式（见仓库 Releases 页面）：
 
-- **安装包**：`NovaRec-Setup-1.1.0-x64.exe`（约 97 MB），NSIS 安装向导，可自选安装目录，自带卸载程序
-- **单文件便携**：`NovaRec-Portable-1.1.0-x64.exe`（约 96.7 MB），一个 exe 双击即用；每次启动会自解压到临时目录，启动比 zip 版慢 2–5 秒
-- **便携 zip**：`NovaRec-1.1.0-win32-x64.zip`（约 129.7 MB），解压一次、启动最快，不写注册表（推荐经常使用时优先选它）
+- **安装包**：`NovaRec-Setup-1.1.1-x64.exe`（约 97.1 MB），NSIS 安装向导，可自选安装目录，自带卸载程序
+- **单文件便携**：`NovaRec-Portable-1.1.1-x64.exe`（约 96.8 MB），一个 exe 双击即用；v1.1.1 起自解压到 exe 同目录下的 `.novarec-portable`（不再用 %TEMP%），启动比 zip 版慢 2–5 秒
+- **便携 zip**：`NovaRec-1.1.1-win32-x64.zip`（约 129.7 MB），解压一次、启动最快，不写注册表（推荐经常使用时优先选它）
 
 系统要求：Windows 10 1809 及以上 / Windows 11，x64；录制系统声音需要有可用的播放设备。
 
-> 便携版与安装包默认**未做商业代码签名**，首次运行可能出现 SmartScreen「未知发布者」提示，选择「更多信息 → 仍要运行」即可；v1.1.0 的构建产物未签名（v1.0 曾用本机自签名证书）。自行构建并签名的方法见 [docs/build.md](docs/build.md)。
+> 若双击后完全没反应：请先确认用的是 1.1.1 及以上版本；仍有问题时查看安装目录下的 `launcher-error.log` 与 `NovaRecData\dev.log` 并反馈。
+
+> **C 盘写入受限的机器（本机已实测）**：部分安全软件/系统策略会拦截未签名程序写 C 盘用户目录，表现为安装到默认目录失败、便携版报到「NSIS Error: Error writing temporary file」、或录完存不进「视频\NovaRec」。v1.1.1 已内置自动兜底：安装器自动改用 `D:\NovaRec`、单文件便携版解压到 exe 同目录（放非系统盘即可）、保存目录不可写时自动改用 `NovaRecData\recordings`。最稳妥的做法是把程序放到 **D 盘**并在安全软件里把 NovaRec 加入信任区；细节见 [docs/使用说明.md](docs/使用说明.md) 第十一节。
+
+> 便携版与安装包默认**未做商业代码签名**，首次运行可能出现 SmartScreen「未知发布者」提示，选择「更多信息 → 仍要运行」即可；v1.1.1 的构建产物未签名（v1.0 曾用本机自签名证书）。自行构建并签名的方法见 [docs/build.md](docs/build.md)。
+
+**v1.1.1（修复版）**：在 1.1.0 的基础上补齐「受限机器可用性」——安装包/单文件便携/默认保存目录三处都加了可写性探测与自动兜底（见上文提示）；同时解决部分 Windows 机器上双击启动后进程立即退出、无窗口无提示的问题（Chromium 沙箱初始化即崩溃，退出码 0x80000003，崩溃发生在应用代码执行之前）。产物改为「启动器 + 应用」结构——`NovaRec.exe` 是约 115 KB 的 C# 启动器，自动补上必需的启动参数后拉起同目录的 `NovaRecApp.exe`，并透传命令行参数与退出码；双击、桌面快捷方式、单文件便携 exe 均无需手工参数。原理与排障见 [docs/launcher.md](docs/launcher.md)。
 
 v1.1.0 相对 v1.0.0：安装包 122 MB → 97 MB、便携 zip 173 MB → 129.7 MB、解压后 421 MB → 285 MB；移除内置 ffmpeg.exe（-61.5 MB）与 53 个语言包（-47.7 MB）、删除 WebGPU 着色器编译器 dxcompiler.dll（-24.6 MB）、排除未使用图标母版（-1.2 MB）；倒计时结束到开录从 256–284 ms 降到 5–16 ms、窗口可见从约 1.2 s 提前到约 0.3–0.4 s；新增自动更新与单文件便携版。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -156,6 +162,7 @@ npm run verify           # 校验打包产物是否完整可启动
 - [docs/build.md](docs/build.md)：构建、打包、安装包、代码签名与 CI
 - [docs/verification.md](docs/verification.md)：端到端验证记录
 - [docs/perf-baseline.md](docs/perf-baseline.md)：v1.1.0 录制性能基准（CPU/内存/帧率/起停延迟）
+- [docs/launcher.md](docs/launcher.md)：v1.1.1 起「启动器 + 应用」双文件结构与启动崩溃排障
 - [docs/updater.md](docs/updater.md)：自动更新的渠道、发布方式与已知限制
 - [docs/release-1.1.0.md](docs/release-1.1.0.md)：v1.1.0 发布清单（上传 Release / version.json / 推送源码三种方式）
 - [docs/publish.md](docs/publish.md)：把仓库发布到 GitHub、打 Release 的流程

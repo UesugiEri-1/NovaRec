@@ -36,6 +36,9 @@ class Recorder extends EventEmitter {
     super();
     opts = opts || {};
     this.userDataPath = opts.userDataPath;
+    // 保存目录的兜底：设置里的目录在录制过程中变得不可写（权限/安全软件拦截）时，
+    // 收尾阶段自动改存到这个目录，避免用户白录一次。由主进程传入 userData/recordings。
+    this.fallbackOutputDir = opts.fallbackOutputDir || path.join(opts.userDataPath || ".", "recordings");
     this.getSettings = opts.getSettings || function () { return {}; };
     this.getMainWindow = opts.getMainWindow || function () { return null; };
     this.library = opts.library;
@@ -612,8 +615,25 @@ class Recorder extends EventEmitter {
 
   async _finalize(stopped) {
     const settings = this.getSettings() || {};
-    const outDir = settings.outputDir;
+    let outDir = settings.outputDir;
     if (!outDir) { this._lastError = "未设置保存目录"; this.emit("error", { message: this._lastError }); this._cleanupTemp(); return null; }
+    // 目录可写性探测：本机安全策略可能让「视频\NovaRec」这类 C 盘目录对未签名程序不可写，
+    // 此时收尾直接改存到 fallbackOutputDir（userData/recordings，通常与程序同盘），不丢录像。
+    const probeDir = function (dir) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        const t = path.join(dir, ".novarec-probe");
+        fs.writeFileSync(t, "x");
+        fs.unlinkSync(t);
+        return true;
+      } catch (e) { return false; }
+    };
+    let usedFallbackDir = false;
+    if (!probeDir(outDir) && this.fallbackOutputDir && this.fallbackOutputDir !== outDir && probeDir(this.fallbackOutputDir)) {
+      usedFallbackDir = true;
+      console.warn("[recorder] output dir not writable, fallback -> " + this.fallbackOutputDir);
+      outDir = this.fallbackOutputDir;
+    }
     const tempPath = stopped.tempPath || (this.info && this.info.tempPath) || "";
     if (!tempPath || !fs.existsSync(tempPath) || fs.statSync(tempPath).size < 512) {
       this._lastError = "没有录到有效视频数据";
@@ -621,7 +641,6 @@ class Recorder extends EventEmitter {
       this._cleanupTemp();
       return null;
     }
-    try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) {}
     // 容器以采集器实际写出的文件头为准（mime 可能因兼容性回退），扩展名必须与真实容器一致。
     let finalFormat = mediafix.sniff(tempPath) || (path.extname(tempPath).toLowerCase() === ".mp4" ? "mp4" : "webm");
     let outPath = path.join(outDir, "NovaRec_" + fileStamp() + "." + finalFormat);
@@ -689,6 +708,7 @@ class Recorder extends EventEmitter {
     const withPoster = Object.assign({}, item, { posterDataUrl: readDataUrl(posterPath) });
     this.emit("saved", withPoster);
     this.emit("toast", { type: "success", message: "录制完成：" + item.fileName });
+    if (usedFallbackDir) this.emit("toast", { type: "info", message: "原保存目录不可写，录像已保存到备用目录：" + outDir });
     this._cleanupTemp();
     return withPoster;
   }

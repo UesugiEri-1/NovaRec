@@ -49,6 +49,9 @@ const config = {
   copyright: "Copyright \u00a9 2026 NovaRec",
   directories: { output: OUT_DIR, buildResources: path.join(ROOT, "assets") },
   win: {
+    // 产物里的 NovaRec.exe 是 C# 启动器（见 scripts/build-launcher.mjs）。这里关掉 electron-builder 的
+    // rcedit 图标/版本改写，避免动 .NET 程序集；图标与版本信息已由 csc 编译时写进启动器本身。
+    signAndEditExecutable: false,
     target: [{ target: "nsis", arch: ["x64"] }],
     icon: path.join(ROOT, "assets", "icon.ico"),
     legalTrademarks: "NovaRec",
@@ -72,6 +75,9 @@ const config = {
     runAfterFinish: true,
     differentialPackage: false,
     warningsAsErrors: false,
+    // 自定义 .onInit 逻辑：默认安装目录（C:\Users\<用户>\AppData\Local\Programs\NovaRec）在
+    // 带「未签名程序禁止写 C 盘」类策略的机器上不可写，会自动改用 D:\NovaRec。见 assets/installer.nsh。
+    include: path.join(ROOT, "assets", "installer.nsh"),
   },
 };
 

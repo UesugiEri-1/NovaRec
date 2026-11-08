@@ -81,6 +81,28 @@ const USER_DATA_DIR = pickUserDataDir();
 try { app.setPath("userData", USER_DATA_DIR); } catch (e) {}
 try { app.setPath("sessionData", USER_DATA_DIR); } catch (e) {}
 
+// 保存目录兜底：部分机器（本机实测）有安全策略按「程序是否可信」拦截未签名程序写 C 盘，
+// 默认的「视频\NovaRec」目录可能根本创建不了。这里按顺序探测，始终选一个真正可写的目录。
+function writeProbe(p) {
+  try {
+    if (!ensureDir(p)) return false;
+    const f = path.join(p, ".novarec-write-probe");
+    fs.writeFileSync(f, "ok");
+    fs.unlinkSync(f);
+    return true;
+  } catch (e) { return false; }
+}
+function pickOutputDir(preferred) {
+  const list = [];
+  if (preferred) list.push(preferred);
+  list.push(path.join(USER_DATA_DIR, "recordings"));
+  try { list.push(path.join(path.dirname(app.getPath("exe")), "recordings")); } catch (e) {}
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] && writeProbe(list[i])) return { dir: list[i], changed: i > 0 };
+  }
+  return { dir: preferred || list[0], changed: false };
+}
+
 const DEV_LOG = path.join(USER_DATA_DIR, "dev.log");
 function devLog(msg) {
   try { fs.appendFileSync(DEV_LOG, new Date().toISOString() + " " + msg + "\n"); } catch (e) {}
@@ -681,6 +703,7 @@ function bootstrap() {
   function createRecorder() {
     const rec = new recorderMod.Recorder({
       userDataPath: app.getPath("userData"),
+      fallbackOutputDir: path.join(app.getPath("userData"), "recordings"),
       getSettings: function () { return state.settings.get(); },
       getMainWindow: function () { return state.mainWindow; },
       library: state.library
@@ -704,7 +727,18 @@ function bootstrap() {
     state.settings = new storeMod.JsonFile(path.join(app.getPath("userData"), "settings.json"), defaults());
     state.settings.load();
     if (!state.settings.get().outputDir) { state.settings.data.outputDir = defaults().outputDir; state.settings.save(); }
-    ensureDir(state.settings.get().outputDir);
+    // 保存目录可写性校正（默认「视频NovaRec」在本机可能不可写）：不可写就换成探测得到的可写目录并落盘。
+    try {
+      const want = state.settings.get().outputDir;
+      const picked = pickOutputDir(want);
+      if (picked.dir !== want) {
+        state.settings.data.outputDir = picked.dir;
+        state.settings.save();
+        log("output dir not writable -> " + picked.dir);
+      } else {
+        ensureDir(want);
+      }
+    } catch (e) { log("output dir check failed: " + (e && e.message)); }
     state.library = new storeMod.Library(path.join(app.getPath("userData"), "library.json"));
     perfMark("stores_loaded");
 

@@ -1,7 +1,7 @@
 {
   "name": "novarec",
   "productName": "NovaRec",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "NovaRec · 免费开源的 Windows 录屏软件（全屏 / 区域 / 窗口 / 系统声音）",
   "main": "src/main/main.js",
   "author": "NovaRec contributors",
@@ -26,6 +26,7 @@
     "build": "node scripts/package.mjs --zip",
     "build:portable": "node scripts/package.mjs",
     "build:portable-exe": "node scripts/make-portable.mjs",
+    "build:launcher": "node scripts/build-launcher.mjs",
     "build:installer": "node scripts/make-installer.mjs",
     "cert": "powershell -ExecutionPolicy Bypass -File scripts/create-cert.ps1",
     "verify": "powershell -ExecutionPolicy Bypass -File scripts/verify-packaged.ps1"

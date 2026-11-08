@@ -13,6 +13,14 @@ dist/
 .data-shot/
 dev.log
 
+# 构建产物（由 scripts/build-launcher.mjs 生成）
+assets/NovaRecLauncher.exe
+
+# 调试残留（.tmp-* 用户数据目录 / 临时主进程脚本）
+.tmp-*/
+.tmp-*.js
+.local/
+
 # Electron / 工具缓存
 .electron-cache/
 .etmp/

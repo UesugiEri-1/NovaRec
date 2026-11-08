@@ -29,6 +29,54 @@ const TAR_EXE = (function () {
 
 function log(s) { console.log("[" + new Date().toISOString() + "] " + s); }
 
+// ---- 启动器（NovaRec.exe = C# 启动器，NovaRecApp.exe = 真正的 Electron 程序）----
+// 为什么：部分 Windows 机器上 Chromium 沙箱在创建子进程之前就 STATUS_BREAKPOINT(0x80000003) 静默退出，
+// 崩溃早于主进程 JS 执行，app.commandLine.appendSwitch("no-sandbox") 来不及生效 —— 必须由外部进程
+// 把 --no-sandbox 放进**进程启动参数**。启动器 ~100KB，.NET Framework 4.x 系统内置，零运行时依赖；
+// 它拉起 NovaRecApp.exe 并等待退出（单文件便携版的自解压桩靠子进程退出码清理临时目录）。
+// 详见 scripts/build-launcher.mjs 与 scripts/launcher/NovaRecLauncher.cs。
+const LAUNCHER_EXE = path.join(ROOT, "assets", "NovaRecLauncher.exe");
+const REAL_APP_EXE_NAME = "NovaRecApp.exe";
+
+function ensureLauncher() {
+  const script = path.join(ROOT, "scripts", "build-launcher.mjs");
+  const t0 = Date.now();
+  const res = spawnSync(process.execPath, [script], { cwd: ROOT, windowsHide: true, encoding: "utf8", timeout: 180000 });
+  const logText = ((res.stdout || "") + (res.stderr || "")).trim();
+  const exists = fs.existsSync(LAUNCHER_EXE);
+  const bytes = exists ? fs.statSync(LAUNCHER_EXE).size : 0;
+  return {
+    ok: res.status === 0 && exists && bytes > 20 * 1024,
+    status: res.status,
+    bytes: bytes,
+    seconds: Math.round((Date.now() - t0) / 100) / 10,
+    log: logText.slice(-600),
+  };
+}
+
+function installLauncher(appDir) {
+  const exe = path.join(appDir, "NovaRec.exe");
+  const realExe = path.join(appDir, REAL_APP_EXE_NAME);
+  try {
+    if (!fs.existsSync(LAUNCHER_EXE)) return { ok: false, error: "缺少 assets/NovaRecLauncher.exe" };
+    if (!fs.existsSync(exe)) return { ok: false, error: "缺少产物 NovaRec.exe" };
+    const alreadyLauncher = fs.existsSync(realExe) && fs.statSync(exe).size === fs.statSync(LAUNCHER_EXE).size;
+    if (!alreadyLauncher) {
+      if (fs.existsSync(realExe)) fs.rmSync(realExe, { force: true });
+      fs.renameSync(exe, realExe);
+    }
+    fs.copyFileSync(LAUNCHER_EXE, exe);
+    return {
+      ok: true,
+      launcherBytes: fs.statSync(exe).size,
+      appBytes: fs.statSync(realExe).size,
+      realAppExeName: REAL_APP_EXE_NAME,
+    };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
 // ---- 产物瘦身 ----
 // 只保留中文/英文语言包（Electron 默认带 55 个 locales，占 ~49MB；应用 UI 仅需 zh-CN/en-US）
 const LOCALES_KEEP = ["zh-CN.pak", "en-US.pak"];
@@ -115,6 +163,9 @@ async function main() {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   const electronVersion = (pkg.devDependencies && pkg.devDependencies.electron ? pkg.devDependencies.electron : "").replace(/^[^0-9]*/, "") || "45.2.1";
   fs.mkdirSync(BUILD_DIR, { recursive: true });
+  const launcherBuild = ensureLauncher();
+  log("launcher build " + JSON.stringify(launcherBuild));
+  if (!launcherBuild.ok) { log("FAIL: 启动器构建失败（见上）"); return 2; }
 
   const zipDir = findElectronZipDir(electronVersion);
   log("electron version=" + electronVersion + " localZipDir=" + zipDir);
@@ -128,9 +179,17 @@ async function main() {
     /[\\/]docs([\\/]|$)/i,
     /[\\/]scripts([\\/]|$)/i,
     /[\\/]\.git([\\/]|$)/i,
+    // 仓库根所有点文件/点目录（.tmp-*/.certs/.local/.github/.build-test.log ...）都不是运行时资源，
+    // 且体积可能很大（调试期 userData 达 12MB），一律不进包。
+    /[\\/]\.[^\\/]+([\\/]|$)/,
+    // 仓库根的历史发布物/锁文件也无需随包分发（省 ~5MB）
+    /[\\/]novarec-1\.0\.0(-source\.zip)?([\\/]|$)/i,
+    /[\\/]package-lock\.json$/i,
     /[\\/]nul$/i,
     // 多尺寸母版图标只给 scripts/make-icons-v2.mjs 生成用，运行期只读 assets/icon.png 与
     // assets/icon.ico（main.js:195/241），打包时排除可省约 1.2MB。
+    // 启动器 exe 只在产物目录外层使用（NovaRec.exe），不必进 app.asar
+    /assets[\\/]NovaRecLauncher\.exe$/i,
     /assets[\\/]icon-1024\.png$/i,
     /assets[\\/]icon-512\.png$/i,
     /assets[\\/]icon-128\.png$/i,
@@ -186,11 +245,15 @@ async function main() {
 
   const appDir = path.join(DIST, "NovaRec-win32-x64");
   const pruneInfo = pruneAppDir(appDir);
+  const launcherInfo = installLauncher(appDir);
+  log("launcher installed " + JSON.stringify(launcherInfo));
   const exe = path.join(appDir, "NovaRec.exe");
+  const realExe = path.join(appDir, REAL_APP_EXE_NAME);
   const asar = path.join(appDir, "resources", "app.asar");
 
   const statOf = function (p) { try { const st = fs.statSync(p); return { exists: true, bytes: st.size }; } catch (e) { return { exists: false, bytes: 0 }; } };
   const exeStat = statOf(exe);
+  const realExeStat = statOf(realExe);
   const asarStat = statOf(asar);
   const distInfo = dirSize(appDir);
 
@@ -209,6 +272,10 @@ async function main() {
 
   const checks = {
     exeExists: exeStat.exists,
+    // 启动器检查：外层的 NovaRec.exe 必须是 ~100KB 的 C# 启动器，真正的 Electron 程序是 NovaRecApp.exe
+    launcherBuildOk: launcherBuild.ok === true,
+    launcherInstalled: launcherInfo.ok === true && exeStat.bytes === launcherBuild.bytes && exeStat.bytes < 4 * 1024 * 1024,
+    realAppExe: realExeStat.exists && realExeStat.bytes > 50 * 1024 * 1024,
     asarExists: asarStat.exists && asarStat.bytes > 100 * 1024,
     asarHasMain: asarHasMain,
     asarHasRenderer: asarHasRenderer,
@@ -254,11 +321,12 @@ async function main() {
       entryCheck = {
         entries: items.length,
         hasExe: items.some(function (x) { return /NovaRec-win32-x64\/NovaRec\.exe$/.test(x); }),
+        hasRealExe: items.some(function (x) { return /NovaRec-win32-x64\/NovaRecApp\.exe$/.test(x); }),
         hasAsar: items.some(function (x) { return /NovaRec-win32-x64\/resources\/app\.asar$/.test(x); }),
         noUnpackedDir: !items.some(function (x) { return /app\.asar\.unpacked\//.test(x); }),
         hasDoc: items.some(function (x) { return /^NovaRec-win32-x64\/[^/]+\.md$/.test(x); }),
       };
-      entryCheck.ok = !!(entryCheck.hasExe && entryCheck.hasAsar && entryCheck.noUnpackedDir && entryCheck.hasDoc);
+      entryCheck.ok = !!(entryCheck.hasExe && entryCheck.hasRealExe && entryCheck.hasAsar && entryCheck.noUnpackedDir && entryCheck.hasDoc);
     }
     zip = { path: zipPath, bytes: st ? st.size : 0, seconds: Math.round((Date.now() - t0) / 100) / 10, tarStatus: res.status, tarOk: res.status === 0, stderr: (res.stderr || "").slice(-400), entryCheck: entryCheck };
     log("ZIP " + JSON.stringify(zip));
@@ -275,7 +343,9 @@ async function main() {
     at: new Date().toISOString(),
     verifyOnly: VERIFY_ONLY,
     appDir: appDir,
-    exe: { path: exe, bytes: exeStat.bytes },
+    exe: { path: exe, bytes: exeStat.bytes, kind: "launcher" },
+    realAppExe: { path: realExe, bytes: realExeStat.bytes },
+    launcher: { build: launcherBuild, installed: launcherInfo },
     asar: { path: asar, bytes: asarStat.bytes },
     remuxer: "js (mp4remux/webmfix/mediafix, no ffmpeg binary)",
     dist: distInfo,
@@ -290,7 +360,7 @@ async function main() {
     zip: zip,
   };
   fs.writeFileSync(REPORT, JSON.stringify(report, null, 2));
-  log("PACKAGE REPORT " + JSON.stringify({ ok: finalOk, packagingOk: ok, zipOk: zipOk, exeBytes: exeStat.bytes, asarBytes: asarStat.bytes, distBytes: distInfo.bytes, distFiles: distInfo.files, pruneFreedMB: Math.round(pruneInfo.removedBytes / 104857.6) / 10, checks: checks }));
+  log("PACKAGE REPORT " + JSON.stringify({ ok: finalOk, packagingOk: ok, zipOk: zipOk, launcherBytes: exeStat.bytes, appBytes: realExeStat.bytes, exeBytes: exeStat.bytes, asarBytes: asarStat.bytes, distBytes: distInfo.bytes, distFiles: distInfo.files, pruneFreedMB: Math.round(pruneInfo.removedBytes / 104857.6) / 10, checks: checks }));
   log("report -> " + REPORT);
   return finalOk ? 0 : 2;
 }

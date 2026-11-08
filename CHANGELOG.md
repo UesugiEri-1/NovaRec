@@ -2,6 +2,26 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.1] - 2026-11-08
+
+兼容性修复版本：解决部分 Windows 机器上双击启动后进程立即退出（无窗口、无提示，退出码 0x80000003 STATUS_BREAKPOINT）的问题。功能、体积与 1.1.0 一致。
+
+### 修复
+
+- **双击启动无反应**：在该类机器上 Chromium 沙箱初始化即崩溃，且崩溃发生在主进程 JS 执行之前（日志与 main.js 内的 appendSwitch("no-sandbox") 都来不及生效）。发布产物改为「启动器 + 应用」双文件结构：`NovaRec.exe` 是 115,712 B 的 C# 启动器（源码 scripts/launcher/NovaRecLauncher.cs，由 scripts/build-launcher.mjs 调用 csc 编译，图标与版本号随 package.json），负责以 --no-sandbox 启动同目录的 `NovaRecApp.exe`、原样转发命令行参数、等待退出并透传退出码；安装包快捷方式、单文件便携 exe 与 zip 解压目录均指向启动器，用户无需任何手工参数
+- 打包排除规则：避免仓库调试残留（.tmp-* 用户数据目录、历史发布 zip、package-lock.json、启动器二进制）进入 resources/app.asar（asar 15,964,795 B → 600,427 B）
+- 自动更新：安装已下载的安装包后，退出应用前等待 1.5 秒（原 0.4 秒），避免 Electron 子进程未退出时安装程序覆盖文件失败
+- 安装包 / 便携版构建改用 signAndEditExecutable: false，不再用 rcedit 改写产物 exe（图标与版本已由 csc 写入启动器）
+- **安装包在「未签名程序禁止写 C 盘」的机器上装不上**：NSIS 自定义 .onInit（assets/installer.nsh）先探测默认目录（%LOCALAPPDATA%\Programs\NovaRec）能否真正建目录+写文件，失败则自动把安装位置改为 D:\NovaRec（向导里可见、仍可手改）；修复前静默安装到默认目录直接 exit code 2 且 0 个文件落地
+- **单文件便携版在同机器上卡死（NSIS Error: Error writing temporary file）**：打包前修改 electron-builder 的 portable.nsi 模板（scripts/make-portable.mjs 自动打补丁），解压目录从 %TEMP% 改为 portable exe 同目录的 .novarec-portable，不可写时回退 D:\NovaRecPortable-tmp；退出后自动清理
+- **默认保存目录不可写导致录制白录**：启动时探测「视频\NovaRec」可写性，不可写自动改用 NovaRecData\recordings 并写入设置；录制收尾时若原目录仍不可写，自动改存备用目录并 toast 提示。实测本机默认目录被安全策略拦截，验证后 outputDir 落盘为 NovaRecData\recordings
+
+### 说明
+
+- 启动器固定附加 --no-sandbox：应用完全离线、不加载远程页面，关闭沙箱不影响使用安全；如需在沙箱可用的机器上对照验证，可用源码 `npm run start`（不带 no-sandbox 参数）
+- 体积：解压后 298,984,934 B / 20 个文件（1.1.0：299,022,765 B / 19 个文件）；安装包约 97.1 MB；单文件便携约 96.8 MB；便携 zip 约 129.7 MB
+- 从 1.1.0 升级：自动更新会提示下载 1.1.1 安装包；也可以直接覆盖安装，NovaRecData 数据目录保留
+
 ## [1.1.0] - 2026-11-07
 
 体积与性能专项版本，功能不减。
